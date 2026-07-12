@@ -1,4 +1,4 @@
-!! this is still maintained, i just need issues to work on. if you face issues or have feature requests, don't hesitate to open issues and ping me!!
+!! this is still maintained, i just need issues to work on. if you face issues or have feature requests, don't hesitate to open issues and ping me !!
 
 # waytator
 
