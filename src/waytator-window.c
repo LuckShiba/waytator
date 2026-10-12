@@ -154,14 +154,142 @@ waytator_window_parse_accelerator(const char      *accelerator,
   return TRUE;
 }
 
+static gboolean
+waytator_window_modifier_from_name(const char      *name,
+                                   GdkModifierType *modifier)
+{
+  static const struct {
+    const char *name;
+    GdkModifierType modifier;
+  } modifiers[] = {
+    { "ctrl", GDK_CONTROL_MASK },
+    { "control", GDK_CONTROL_MASK },
+    { "shift", GDK_SHIFT_MASK },
+    { "alt", GDK_ALT_MASK },
+    { "super", GDK_SUPER_MASK },
+    { "win", GDK_SUPER_MASK },
+  };
+
+  for (guint i = 0; i < G_N_ELEMENTS(modifiers); i++) {
+    if (g_ascii_strcasecmp(name, modifiers[i].name) != 0)
+      continue;
+
+    *modifier = modifiers[i].modifier;
+    return TRUE;
+  }
+
+  return FALSE;
+}
+
+static guint
+waytator_window_keyval_from_name(const char *name)
+{
+  static const struct {
+    const char *name;
+    guint keyval;
+  } aliases[] = {
+    { "esc", GDK_KEY_Escape },
+    { "enter", GDK_KEY_Return },
+    { "backspace", GDK_KEY_BackSpace },
+    { "del", GDK_KEY_Delete },
+    { "ins", GDK_KEY_Insert },
+    { "pageup", GDK_KEY_Page_Up },
+    { "pagedown", GDK_KEY_Page_Down },
+    { "printscreen", GDK_KEY_Print },
+  };
+  g_autofree char *lower = g_ascii_strdown(name, -1);
+  g_autofree char *upper = g_ascii_strup(name, -1);
+  g_autofree char *capitalized = g_strdup(lower);
+  const char *candidates[4];
+
+  for (guint i = 0; i < G_N_ELEMENTS(aliases); i++) {
+    if (g_strcmp0(lower, aliases[i].name) == 0)
+      return aliases[i].keyval;
+  }
+
+  //keysym names are case sensitive (Escape, F5, space), people typing a flag are not
+  capitalized[0] = g_ascii_toupper(capitalized[0]);
+  candidates[0] = name;
+  candidates[1] = lower;
+  candidates[2] = capitalized;
+  candidates[3] = upper;
+  for (guint i = 0; i < G_N_ELEMENTS(candidates); i++) {
+    const guint keyval = gdk_keyval_from_name(candidates[i]);
+
+    if (keyval != 0 && keyval != GDK_KEY_VoidSymbol)
+      return keyval;
+  }
+
+  if (g_utf8_strlen(name, -1) == 1)
+    return gdk_unicode_to_keyval(g_utf8_get_char(name));
+
+  return 0;
+}
+
+//takes "ctrl+shift+s" style or gtk accelerator syntax and gives back the stored form, NULL if it makes no sense
+static char *
+waytator_window_normalize_shortcut(const char *shortcut)
+{
+  g_autofree char *copy = NULL;
+  g_autofree char *accelerator = NULL;
+  g_auto(GStrv) tokens = NULL;
+  GdkModifierType modifiers = 0;
+  guint keyval = 0;
+  guint n_tokens;
+  guint n_modifiers;
+
+  if (shortcut == NULL || *shortcut == '\0' || g_ascii_strcasecmp(shortcut, WAYTATOR_SHORTCUT_NONE) == 0)
+    return g_strdup("");
+
+  if (g_ascii_strcasecmp(shortcut, WAYTATOR_SHORTCUT_RIGHT_CLICK) == 0)
+    return g_strdup(WAYTATOR_SHORTCUT_RIGHT_CLICK);
+
+  if (waytator_window_parse_accelerator(shortcut, NULL, NULL))
+    return g_strdup(shortcut);
+
+  copy = g_strdup(shortcut);
+  if (g_str_has_suffix(copy, "+")) {
+    //a trailing plus is the plus key itself, as in "ctrl++"
+    keyval = GDK_KEY_plus;
+    copy[strlen(copy) - 1] = '\0';
+    if (g_str_has_suffix(copy, "+"))
+      copy[strlen(copy) - 1] = '\0';
+  }
+
+  tokens = g_strsplit(copy, "+", -1);
+  n_tokens = g_strv_length(tokens);
+  if (keyval == 0 && n_tokens == 0)
+    return NULL;
+
+  n_modifiers = keyval != 0 ? n_tokens : n_tokens - 1;
+
+  for (guint i = 0; i < n_modifiers; i++) {
+    GdkModifierType modifier;
+
+    if (!waytator_window_modifier_from_name(g_strstrip(tokens[i]), &modifier))
+      return NULL;
+
+    modifiers |= modifier;
+  }
+
+  if (keyval == 0)
+    keyval = waytator_window_keyval_from_name(g_strstrip(tokens[n_tokens - 1]));
+  if (keyval == 0)
+    return NULL;
+
+  accelerator = gtk_accelerator_name(gdk_keyval_to_lower(keyval), modifiers);
+  if (!waytator_window_parse_accelerator(accelerator, NULL, NULL))
+    return NULL;
+
+  return g_steal_pointer(&accelerator);
+}
+
 gboolean
 waytator_window_shortcut_is_valid(const char *shortcut)
 {
-  return shortcut == NULL
-      || *shortcut == '\0'
-      || g_strcmp0(shortcut, WAYTATOR_SHORTCUT_NONE) == 0
-      || g_strcmp0(shortcut, WAYTATOR_SHORTCUT_RIGHT_CLICK) == 0
-      || waytator_window_parse_accelerator(shortcut, NULL, NULL);
+  g_autofree char *normalized = waytator_window_normalize_shortcut(shortcut);
+
+  return normalized != NULL;
 }
 
 static void
@@ -231,18 +359,17 @@ waytator_window_set_shortcut_override(WaytatorWindow *self,
                                       const char     *name,
                                       const char     *shortcut)
 {
-  if (!waytator_window_shortcut_is_valid(shortcut))
-    return FALSE;
+  g_autofree char *normalized = waytator_window_normalize_shortcut(shortcut);
 
-  if (g_strcmp0(shortcut, WAYTATOR_SHORTCUT_NONE) == 0)
-    shortcut = "";
+  if (normalized == NULL)
+    return FALSE;
 
   for (int i = 0; i < WAYTATOR_N_SHORTCUTS; i++) {
     if (g_strcmp0(name, waytator_shortcuts[i].name) != 0)
       continue;
 
     g_free(self->shortcut_overrides[i]);
-    self->shortcut_overrides[i] = g_strdup(shortcut != NULL ? shortcut : "");
+    self->shortcut_overrides[i] = g_steal_pointer(&normalized);
     return TRUE;
   }
 
@@ -374,6 +501,7 @@ waytator_window_load_preferences(WaytatorWindow *self)
 
   for (int i = 0; i < WAYTATOR_N_SHORTCUTS; i++) {
     g_autofree char *accelerator = NULL;
+    g_autofree char *normalized = NULL;
 
     if (!g_key_file_has_key(key_file, WAYTATOR_SETTINGS_GROUP, waytator_shortcuts[i].settings_key, NULL))
       continue;
@@ -382,8 +510,9 @@ waytator_window_load_preferences(WaytatorWindow *self)
                                         WAYTATOR_SETTINGS_GROUP,
                                         waytator_shortcuts[i].settings_key,
                                         NULL);
-    if (accelerator != NULL && waytator_window_shortcut_is_valid(accelerator))
-      waytator_window_apply_shortcut(self, i, accelerator);
+    normalized = waytator_window_normalize_shortcut(accelerator);
+    if (normalized != NULL)
+      waytator_window_apply_shortcut(self, i, normalized);
   }
 
   //these two used to be switches, a switched off one is now just an unassigned shortcut

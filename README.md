@@ -113,6 +113,7 @@ All of this can be overridden for a single launch, which is handy in screenshot 
 grim -g "$(slurp)" - | waytator --close-on-copy
 waytator --no-close-on-copy path/to/image.png
 grim -g "$(slurp)" - | waytator --save-copy-and-close-shortcut right-click
+waytator --save-and-close-shortcut ctrl+shift+s path/to/image.png
 ```
 
 | Option | Effect |
@@ -125,7 +126,14 @@ grim -g "$(slurp)" - | waytator --save-copy-and-close-shortcut right-click
 | `--save-and-close-shortcut SHORTCUT` | Override the "Save and close" shortcut |
 | `--save-copy-and-close-shortcut SHORTCUT` | Override the "Save, copy and close" shortcut |
 
-`SHORTCUT` is a key or key combination such as `s` or `<Control><Shift>s`, `right-click`, or `none`.
+`SHORTCUT` is written the way you would say it:
+
+- a single key: `s`, `F5`, `escape`, `space`, `print`, `delete`
+- modifiers and a key joined with `+`: `ctrl+s`, `ctrl+shift+s`, `alt+F5`, `super+c`
+- `right-click` for a right click on the canvas
+- `none` to unassign it
+
+The modifiers are `ctrl`, `shift`, `alt` and `super`, and none of it is case sensitive. For an unusual key, assign it in the preferences and copy the value from `~/.config/waytator/settings.ini`; that form (GTK accelerator syntax, e.g. `<Control><Shift>s`) is accepted too.
 
 If you're on niri, just bind your screenshot keybind to `./scripts/screenshot-to-waytator.sh`, this will automatically open screenshots into `waytator` after they are captured for editing. Saving from niri's screenshot UI opens the saved file; pressing `Ctrl+C` in the screenshot UI opens the copied image directly from the clipboard. Clipboard captures use a timestamped name by default; override it with `WAYTATOR_SCREENSHOT_NAME`.
 

@@ -126,8 +126,10 @@ app_open(GApplication  *app,
   "  --save-and-close-shortcut SHORTCUT\n" \
   "  --save-copy-and-close-shortcut SHORTCUT\n" \
   "\n" \
-  "SHORTCUT is a key or key combination such as \"s\" or \"<Control><Shift>s\",\n" \
-  "\"right-click\", or \"none\". Overrides last for this launch only.\n"
+  "SHORTCUT is a key, or modifiers and a key joined with \"+\", for example\n" \
+  "\"s\", \"F5\", \"escape\", \"ctrl+s\" or \"ctrl+shift+s\". It can also be\n" \
+  "\"right-click\", or \"none\" to unassign. Modifiers are ctrl, shift, alt and\n" \
+  "super. Overrides last for this launch only.\n"
 
 static const struct {
   const char *option;
