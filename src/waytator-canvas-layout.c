@@ -115,6 +115,19 @@ waytator_window_viewport_changed(GObject    *object,
   waytator_window_canvas_size_changed(object, pspec, user_data);
 }
 
+static void
+waytator_window_drawing_area_resized(GtkDrawingArea *drawing_area,
+                                     int             width,
+                                     int             height,
+                                     gpointer        user_data)
+{
+  (void) drawing_area;
+  (void) width;
+  (void) height;
+
+  waytator_window_update_ocr_overlay(WAYTATOR_WINDOW(user_data));
+}
+
 gboolean
 waytator_window_get_display_rect(WaytatorWindow *self,
                                  double          widget_width,
@@ -414,5 +427,6 @@ waytator_window_setup_signals(WaytatorWindow *self)
   g_signal_connect(self->canvas_scroller, "notify::height", G_CALLBACK(waytator_window_canvas_size_changed), self);
   g_signal_connect(hadjustment, "notify::page-size", G_CALLBACK(waytator_window_viewport_changed), self);
   g_signal_connect(vadjustment, "notify::page-size", G_CALLBACK(waytator_window_viewport_changed), self);
+  g_signal_connect(self->drawing_area, "resize", G_CALLBACK(waytator_window_drawing_area_resized), self);
   waytator_window_setup_tool_signals(self);
 }
