@@ -509,16 +509,14 @@ waytator_window_global_key_pressed(GtkEventControllerKey *controller,
       gtk_widget_activate_action(GTK_WIDGET(self), "win.dismiss", NULL);
       return TRUE;
     }
-
-    if (self->esc_closes_window) {
-      gtk_widget_activate_action(GTK_WIDGET(self), "win.close-window", NULL);
-      return TRUE;
-    }
   }
 
-  if (self->copy_shortcut_enabled
-      && waytator_window_parse_shortcut_match(self->copy_shortcut_accel, keyval, state)) {
-    gtk_widget_activate_action(GTK_WIDGET(self), "win.copy-buffer", NULL);
+  for (int i = 0; i < WAYTATOR_N_SHORTCUTS; i++) {
+    if (!waytator_window_shortcut_is_active(self, i)
+        || !waytator_window_parse_shortcut_match(waytator_window_shortcut_accel(self, i), keyval, state))
+      continue;
+
+    waytator_window_activate_shortcut(self, i);
     return TRUE;
   }
 
@@ -1358,6 +1356,30 @@ waytator_window_install_canvas_actions(GtkWidgetClass *widget_class)
   gtk_widget_class_install_action(widget_class, "win.zoom-fit", NULL, waytator_window_zoom_fit_action);
 }
 
+static void
+waytator_window_canvas_right_clicked(GtkGestureClick *gesture,
+                                     int              n_press,
+                                     double           x,
+                                     double           y,
+                                     gpointer         user_data)
+{
+  WaytatorWindow *self = WAYTATOR_WINDOW(user_data);
+
+  (void) n_press;
+  (void) x;
+  (void) y;
+
+  for (int i = 0; i < WAYTATOR_N_SHORTCUTS; i++) {
+    if (!waytator_window_shortcut_is_active(self, i)
+        || g_strcmp0(waytator_window_shortcut_accel(self, i), "right-click") != 0)
+      continue;
+
+    gtk_gesture_set_state(GTK_GESTURE(gesture), GTK_EVENT_SEQUENCE_CLAIMED);
+    waytator_window_activate_shortcut(self, i);
+    return;
+  }
+}
+
 void
 waytator_window_setup_controllers(WaytatorWindow *self)
 {
@@ -1369,6 +1391,7 @@ waytator_window_setup_controllers(WaytatorWindow *self)
   GtkGesture *crop;
   GtkGesture *draw;
   GtkGesture *zoom;
+  GtkGesture *right_click;
   GtkEventController *legacy;
   GtkEventController *motion;
 
@@ -1414,6 +1437,11 @@ waytator_window_setup_controllers(WaytatorWindow *self)
   g_signal_connect(zoom, "update", G_CALLBACK(waytator_window_zoom_gesture_update), self);
   gtk_widget_add_controller(self->canvas_surface, GTK_EVENT_CONTROLLER(zoom));
   self->zoom_gesture = zoom;
+
+  right_click = gtk_gesture_click_new();
+  gtk_gesture_single_set_button(GTK_GESTURE_SINGLE(right_click), GDK_BUTTON_SECONDARY);
+  g_signal_connect(right_click, "pressed", G_CALLBACK(waytator_window_canvas_right_clicked), self);
+  gtk_widget_add_controller(GTK_WIDGET(self->canvas_scroller), GTK_EVENT_CONTROLLER(right_click));
 
   legacy = gtk_event_controller_legacy_new();
   gtk_event_controller_set_propagation_phase(legacy, GTK_PHASE_CAPTURE);

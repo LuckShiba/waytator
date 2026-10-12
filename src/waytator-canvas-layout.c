@@ -396,6 +396,7 @@ waytator_window_sync_state(WaytatorWindow *self)
   gtk_widget_set_sensitive(self->settings_group, has_image);
   gtk_widget_set_sensitive(GTK_WIDGET(self->file_button), has_current_file);
   gtk_widget_set_sensitive(GTK_WIDGET(self->copy_button), has_image);
+  gtk_widget_set_sensitive(GTK_WIDGET(self->copy_keep_open_button), has_image);
   gtk_widget_set_sensitive(self->zoom_group, has_image);
   gtk_widget_action_set_enabled(GTK_WIDGET(self), "win.open-current-file", has_current_file);
   gtk_widget_action_set_enabled(GTK_WIDGET(self), "win.open-containing-folder", parent != NULL);

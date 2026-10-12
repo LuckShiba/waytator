@@ -67,6 +67,7 @@ struct _WaytatorWindow {
   GtkImage *save_working_icon;
   GtkImage *save_success_icon;
   GtkButton *copy_button;
+  GtkButton *copy_keep_open_button;
   GtkMenuButton *app_menu_button;
   GtkWindowControls *end_window_controls;
   GListModel *end_window_controls_children;
@@ -86,7 +87,8 @@ struct _WaytatorWindow {
   GtkDropDown *blur_type_dropdown;
   GtkCssProvider *window_css_provider;
   GtkCssProvider *widget_css_provider;
-  char *copy_shortcut_accel;
+  char *shortcut_accels[WAYTATOR_N_SHORTCUTS];
+  char *shortcut_overrides[WAYTATOR_N_SHORTCUTS];
 
   GFile *current_file;
   char *source_name;
@@ -104,6 +106,10 @@ struct _WaytatorWindow {
   gint64 save_feedback_started_at;
   gboolean copy_in_progress;
   gboolean auto_copy_pending;
+  gboolean close_after_copy;
+  gboolean close_copy_pending;
+  WaytatorAfterSave after_save;
+  char *saved_path;
   guint ocr_generation;
   gboolean ocr_running;
   double last_draw_x;
@@ -136,8 +142,8 @@ struct _WaytatorWindow {
   gboolean touch_tap_cancelled;
   guint touch_tap_max_points;
   gint64 touch_tap_started_at;
-  gboolean esc_closes_window;
-  gboolean copy_shortcut_enabled;
+  gboolean close_on_copy;
+  int close_on_copy_override;
   GdkModifierType angle_snap_modifiers;
   gboolean allow_highlighter_overlap;
   gboolean floating_controls_blur;
@@ -167,6 +173,12 @@ void waytator_window_clear_history(WaytatorWindow *self);
 void waytator_window_record_undo_step(WaytatorWindow *self);
 void waytator_window_maybe_auto_copy_latest_change(WaytatorWindow *self);
 void waytator_window_trigger_copy(WaytatorWindow *self);
+gboolean waytator_window_shortcut_is_active(WaytatorWindow  *self,
+                                            WaytatorShortcut shortcut);
+const char *waytator_window_shortcut_accel(WaytatorWindow  *self,
+                                           WaytatorShortcut shortcut);
+void waytator_window_activate_shortcut(WaytatorWindow  *self,
+                                       WaytatorShortcut shortcut);
 void waytator_window_restore_strokes(WaytatorWindow *self,
                                      GPtrArray      *strokes);
 

@@ -32,8 +32,11 @@ static void waytator_window_copy_export_ready(GObject      *source_object,
 static gboolean waytator_window_parse_accelerator(const char       *accelerator,
                                                   guint            *keyval,
                                                   GdkModifierType  *modifiers);
-static void waytator_window_apply_copy_shortcut(WaytatorWindow *self,
-                                                const char     *accelerator);
+static void waytator_window_apply_shortcut(WaytatorWindow  *self,
+                                           WaytatorShortcut shortcut,
+                                           const char      *accelerator);
+static gboolean waytator_window_closes_on_copy(WaytatorWindow *self);
+static void waytator_window_update_copy_controls(WaytatorWindow *self);
 static void waytator_window_update_shortcut_label(GtkShortcutLabel *label,
                                                   const char       *accelerator);
 static const char *waytator_window_angle_snap_modifier_label(GdkModifierType modifiers);
@@ -105,6 +108,22 @@ waytator_window_background_mode_label(WaytatorWindowBackgroundMode mode)
   }
 }
 
+#define WAYTATOR_SHORTCUT_NONE "none"
+#define WAYTATOR_SHORTCUT_RIGHT_CLICK "right-click"
+
+static const struct {
+  const char *settings_key;
+  const char *name;
+  const char *title;
+  const char *action;
+} waytator_shortcuts[WAYTATOR_N_SHORTCUTS] = {
+  [WAYTATOR_SHORTCUT_CLOSE_WINDOW] = { "close_window_shortcut", "close-window", "Close window", "win.close-window" },
+  [WAYTATOR_SHORTCUT_COPY] = { "copy_shortcut", "copy", "Copy", "win.copy-buffer" },
+  [WAYTATOR_SHORTCUT_COPY_KEEP_OPEN] = { "copy_keep_open_shortcut", "copy-without-closing", "Copy without closing", "win.copy-keep-open" },
+  [WAYTATOR_SHORTCUT_SAVE_CLOSE] = { "save_close_shortcut", "save-and-close", "Save and close", "win.save-and-close" },
+  [WAYTATOR_SHORTCUT_SAVE_COPY_CLOSE] = { "save_copy_close_shortcut", "save-copy-and-close", "Save, copy and close", "win.save-copy-and-close" },
+};
+
 static char *
 waytator_window_preferences_path(void)
 {
@@ -134,18 +153,112 @@ waytator_window_parse_accelerator(const char      *accelerator,
   return TRUE;
 }
 
-static void
-waytator_window_apply_copy_shortcut(WaytatorWindow *self,
-                                    const char     *accelerator)
+gboolean
+waytator_window_shortcut_is_valid(const char *shortcut)
 {
-  g_clear_pointer(&self->copy_shortcut_accel, g_free);
-  self->copy_shortcut_accel = g_strdup(accelerator);
+  return shortcut == NULL
+      || *shortcut == '\0'
+      || g_strcmp0(shortcut, WAYTATOR_SHORTCUT_NONE) == 0
+      || g_strcmp0(shortcut, WAYTATOR_SHORTCUT_RIGHT_CLICK) == 0
+      || waytator_window_parse_accelerator(shortcut, NULL, NULL);
+}
+
+static void
+waytator_window_apply_shortcut(WaytatorWindow  *self,
+                               WaytatorShortcut shortcut,
+                               const char      *accelerator)
+{
+  g_clear_pointer(&self->shortcut_accels[shortcut], g_free);
+  self->shortcut_accels[shortcut] = g_strdup(accelerator != NULL ? accelerator : "");
+}
+
+const char *
+waytator_window_shortcut_accel(WaytatorWindow  *self,
+                               WaytatorShortcut shortcut)
+{
+  return self->shortcut_overrides[shortcut] != NULL
+       ? self->shortcut_overrides[shortcut]
+       : self->shortcut_accels[shortcut];
+}
+
+gboolean
+waytator_window_shortcut_is_active(WaytatorWindow  *self,
+                                   WaytatorShortcut shortcut)
+{
+  const char *accelerator = waytator_window_shortcut_accel(self, shortcut);
+
+  if (accelerator == NULL || *accelerator == '\0')
+    return FALSE;
+
+  return shortcut != WAYTATOR_SHORTCUT_COPY_KEEP_OPEN || waytator_window_closes_on_copy(self);
+}
+
+void
+waytator_window_activate_shortcut(WaytatorWindow  *self,
+                                  WaytatorShortcut shortcut)
+{
+  gtk_widget_activate_action(GTK_WIDGET(self), waytator_shortcuts[shortcut].action, NULL);
+}
+
+static gboolean
+waytator_window_closes_on_copy(WaytatorWindow *self)
+{
+  return self->close_on_copy_override >= 0
+       ? self->close_on_copy_override
+       : self->close_on_copy;
+}
+
+void
+waytator_window_clear_overrides(WaytatorWindow *self)
+{
+  self->close_on_copy_override = -1;
+  for (int i = 0; i < WAYTATOR_N_SHORTCUTS; i++)
+    g_clear_pointer(&self->shortcut_overrides[i], g_free);
+  waytator_window_update_copy_controls(self);
+}
+
+void
+waytator_window_set_close_on_copy_override(WaytatorWindow *self,
+                                           gboolean        close_on_copy)
+{
+  self->close_on_copy_override = close_on_copy ? 1 : 0;
+  waytator_window_update_copy_controls(self);
+}
+
+gboolean
+waytator_window_set_shortcut_override(WaytatorWindow *self,
+                                      const char     *name,
+                                      const char     *shortcut)
+{
+  if (!waytator_window_shortcut_is_valid(shortcut))
+    return FALSE;
+
+  if (g_strcmp0(shortcut, WAYTATOR_SHORTCUT_NONE) == 0)
+    shortcut = "";
+
+  for (int i = 0; i < WAYTATOR_N_SHORTCUTS; i++) {
+    if (g_strcmp0(name, waytator_shortcuts[i].name) != 0)
+      continue;
+
+    g_free(self->shortcut_overrides[i]);
+    self->shortcut_overrides[i] = g_strdup(shortcut != NULL ? shortcut : "");
+    return TRUE;
+  }
+
+  return FALSE;
 }
 
 static void
 waytator_window_update_shortcut_label(GtkShortcutLabel *label,
                                       const char       *accelerator)
 {
+  if (g_strcmp0(accelerator, WAYTATOR_SHORTCUT_RIGHT_CLICK) == 0) {
+    gtk_shortcut_label_set_disabled_text(label, "Right click");
+    gtk_shortcut_label_set_accelerator(label, "");
+    return;
+  }
+
+  gtk_shortcut_label_set_disabled_text(label, "None");
   gtk_shortcut_label_set_accelerator(label,
                                      accelerator != NULL ? accelerator : "");
 }
@@ -240,23 +353,17 @@ waytator_window_load_preferences(WaytatorWindow *self)
       self->floating_controls_opacity = opacity;
   }
 
-  if (g_key_file_has_key(key_file, WAYTATOR_SETTINGS_GROUP, "esc_closes_window", NULL))
-    self->esc_closes_window = g_key_file_get_boolean(key_file,
-                                                     WAYTATOR_SETTINGS_GROUP,
-                                                     "esc_closes_window",
-                                                     NULL);
-
-  if (g_key_file_has_key(key_file, WAYTATOR_SETTINGS_GROUP, "copy_shortcut_enabled", NULL))
-    self->copy_shortcut_enabled = g_key_file_get_boolean(key_file,
-                                                         WAYTATOR_SETTINGS_GROUP,
-                                                         "copy_shortcut_enabled",
-                                                         NULL);
-
   if (g_key_file_has_key(key_file, WAYTATOR_SETTINGS_GROUP, "auto_copy_latest_change", NULL))
     self->auto_copy_latest_change = g_key_file_get_boolean(key_file,
                                                            WAYTATOR_SETTINGS_GROUP,
                                                            "auto_copy_latest_change",
                                                            NULL);
+
+  if (g_key_file_has_key(key_file, WAYTATOR_SETTINGS_GROUP, "close_on_copy", NULL))
+    self->close_on_copy = g_key_file_get_boolean(key_file,
+                                                 WAYTATOR_SETTINGS_GROUP,
+                                                 "close_on_copy",
+                                                 NULL);
 
   if (g_key_file_has_key(key_file, WAYTATOR_SETTINGS_GROUP, "allow_highlighter_overlap", NULL))
     self->allow_highlighter_overlap = g_key_file_get_boolean(key_file,
@@ -264,15 +371,29 @@ waytator_window_load_preferences(WaytatorWindow *self)
                                                              "allow_highlighter_overlap",
                                                              NULL);
 
-  if (g_key_file_has_key(key_file, WAYTATOR_SETTINGS_GROUP, "copy_shortcut", NULL)) {
-    g_autofree char *accelerator = g_key_file_get_string(key_file,
-                                                         WAYTATOR_SETTINGS_GROUP,
-                                                         "copy_shortcut",
-                                                         NULL);
+  for (int i = 0; i < WAYTATOR_N_SHORTCUTS; i++) {
+    g_autofree char *accelerator = NULL;
 
-    if (waytator_window_parse_accelerator(accelerator, NULL, NULL))
-      waytator_window_apply_copy_shortcut(self, accelerator);
+    if (!g_key_file_has_key(key_file, WAYTATOR_SETTINGS_GROUP, waytator_shortcuts[i].settings_key, NULL))
+      continue;
+
+    accelerator = g_key_file_get_string(key_file,
+                                        WAYTATOR_SETTINGS_GROUP,
+                                        waytator_shortcuts[i].settings_key,
+                                        NULL);
+    if (accelerator != NULL && waytator_window_shortcut_is_valid(accelerator))
+      waytator_window_apply_shortcut(self, i, accelerator);
   }
+
+  //these two used to be switches, a switched off one is now just an unassigned shortcut
+  if (!g_key_file_has_key(key_file, WAYTATOR_SETTINGS_GROUP, "close_window_shortcut", NULL)
+      && g_key_file_has_key(key_file, WAYTATOR_SETTINGS_GROUP, "esc_closes_window", NULL)
+      && !g_key_file_get_boolean(key_file, WAYTATOR_SETTINGS_GROUP, "esc_closes_window", NULL))
+    waytator_window_apply_shortcut(self, WAYTATOR_SHORTCUT_CLOSE_WINDOW, "");
+
+  if (g_key_file_has_key(key_file, WAYTATOR_SETTINGS_GROUP, "copy_shortcut_enabled", NULL)
+      && !g_key_file_get_boolean(key_file, WAYTATOR_SETTINGS_GROUP, "copy_shortcut_enabled", NULL))
+    waytator_window_apply_shortcut(self, WAYTATOR_SHORTCUT_COPY, "");
 
   if (g_key_file_has_key(key_file, WAYTATOR_SETTINGS_GROUP, "angle_snap_modifiers", NULL)) {
     const int modifiers = g_key_file_get_integer(key_file,
@@ -339,24 +460,21 @@ waytator_window_save_preferences(WaytatorWindow *self)
                         self->floating_controls_opacity);
   g_key_file_set_boolean(key_file,
                          WAYTATOR_SETTINGS_GROUP,
-                         "esc_closes_window",
-                         self->esc_closes_window);
-  g_key_file_set_boolean(key_file,
-                         WAYTATOR_SETTINGS_GROUP,
-                         "copy_shortcut_enabled",
-                         self->copy_shortcut_enabled);
-  g_key_file_set_boolean(key_file,
-                         WAYTATOR_SETTINGS_GROUP,
                          "auto_copy_latest_change",
                          self->auto_copy_latest_change);
   g_key_file_set_boolean(key_file,
                          WAYTATOR_SETTINGS_GROUP,
                          "allow_highlighter_overlap",
                          self->allow_highlighter_overlap);
-  g_key_file_set_string(key_file,
-                        WAYTATOR_SETTINGS_GROUP,
-                        "copy_shortcut",
-                        self->copy_shortcut_accel);
+  g_key_file_set_boolean(key_file,
+                         WAYTATOR_SETTINGS_GROUP,
+                         "close_on_copy",
+                         self->close_on_copy);
+  for (int i = 0; i < WAYTATOR_N_SHORTCUTS; i++)
+    g_key_file_set_string(key_file,
+                          WAYTATOR_SETTINGS_GROUP,
+                          waytator_shortcuts[i].settings_key,
+                          self->shortcut_accels[i]);
   g_key_file_set_integer(key_file,
                          WAYTATOR_SETTINGS_GROUP,
                          "angle_snap_modifiers",
@@ -488,33 +606,6 @@ waytator_window_floating_controls_opacity_changed(GtkSpinButton  *spin_button,
 }
 
 static void
-waytator_window_esc_closes_window_changed(AdwSwitchRow   *row,
-                                          GParamSpec     *pspec,
-                                          WaytatorWindow *self)
-{
-  (void) pspec;
-
-  self->esc_closes_window = adw_switch_row_get_active(row);
-  waytator_window_save_preferences(self);
-}
-
-static void
-waytator_window_copy_shortcut_enabled_changed(AdwSwitchRow   *row,
-                                              GParamSpec     *pspec,
-                                              WaytatorWindow *self)
-{
-  GtkWidget *shortcut_row;
-
-  (void) pspec;
-
-  self->copy_shortcut_enabled = adw_switch_row_get_active(row);
-  shortcut_row = g_object_get_data(G_OBJECT(row), "shortcut-row");
-  if (shortcut_row != NULL)
-    gtk_widget_set_sensitive(shortcut_row, self->copy_shortcut_enabled);
-  waytator_window_save_preferences(self);
-}
-
-static void
 waytator_window_auto_copy_latest_change_changed(AdwSwitchRow   *row,
                                                 GParamSpec     *pspec,
                                                 WaytatorWindow *self)
@@ -522,6 +613,23 @@ waytator_window_auto_copy_latest_change_changed(AdwSwitchRow   *row,
   (void) pspec;
 
   self->auto_copy_latest_change = adw_switch_row_get_active(row);
+  waytator_window_save_preferences(self);
+}
+
+static void
+waytator_window_close_on_copy_changed(AdwSwitchRow   *row,
+                                      GParamSpec     *pspec,
+                                      WaytatorWindow *self)
+{
+  GtkWidget *shortcut_row;
+
+  (void) pspec;
+
+  self->close_on_copy = adw_switch_row_get_active(row);
+  shortcut_row = g_object_get_data(G_OBJECT(row), "shortcut-row");
+  if (shortcut_row != NULL)
+    gtk_widget_set_visible(shortcut_row, self->close_on_copy || waytator_window_closes_on_copy(self));
+  waytator_window_update_copy_controls(self);
   waytator_window_save_preferences(self);
 }
 
@@ -624,11 +732,28 @@ waytator_window_default_fill_color_changed(GObject    *object,
 }
 
 static void
-waytator_window_apply_copy_shortcut_row(GtkButton *button,
-                                        gpointer   user_data)
+waytator_window_end_shortcut_capture(GtkWidget *button)
+{
+  GtkWidget *shortcut_label = g_object_get_data(G_OBJECT(button), "shortcut-label");
+
+  gtk_button_set_has_frame(GTK_BUTTON(button), FALSE);
+  gtk_widget_remove_css_class(button, "suggested-action");
+  if (shortcut_label != NULL)
+    gtk_widget_set_sensitive(shortcut_label, TRUE);
+  g_object_set_data(G_OBJECT(button), "capturing", GINT_TO_POINTER(FALSE));
+}
+
+static void
+waytator_window_begin_shortcut_capture(GtkButton *button,
+                                       gpointer   user_data)
 {
   GtkWidget *shortcut_label;
   (void) user_data;
+
+  if (GPOINTER_TO_INT(g_object_get_data(G_OBJECT(button), "capturing"))) {
+    waytator_window_end_shortcut_capture(GTK_WIDGET(button));
+    return;
+  }
 
   gtk_button_set_has_frame(button, TRUE);
   gtk_widget_add_css_class(GTK_WIDGET(button), "suggested-action");
@@ -638,16 +763,30 @@ waytator_window_apply_copy_shortcut_row(GtkButton *button,
   g_object_set_data(G_OBJECT(button), "capturing", GINT_TO_POINTER(TRUE));
 }
 
-static gboolean
-waytator_window_copy_shortcut_capture_key_pressed(GtkEventControllerKey *controller,
-                                                  guint                  keyval,
-                                                  guint                  keycode,
-                                                  GdkModifierType        state,
-                                                  gpointer               user_data)
+static void
+waytator_window_finish_shortcut_capture(GtkWidget  *button,
+                                        const char *accelerator)
 {
-  GtkWidget *button = GTK_WIDGET(user_data);
   WaytatorWindow *self = WAYTATOR_WINDOW(g_object_get_data(G_OBJECT(button), "window"));
   GtkShortcutLabel *shortcut_label = GTK_SHORTCUT_LABEL(g_object_get_data(G_OBJECT(button), "shortcut-label"));
+  GtkWidget *clear_button = g_object_get_data(G_OBJECT(button), "clear-button");
+  const WaytatorShortcut shortcut = GPOINTER_TO_INT(g_object_get_data(G_OBJECT(button), "shortcut-id"));
+
+  waytator_window_apply_shortcut(self, shortcut, accelerator);
+  waytator_window_update_shortcut_label(shortcut_label, self->shortcut_accels[shortcut]);
+  gtk_widget_set_visible(clear_button, *self->shortcut_accels[shortcut] != '\0');
+  waytator_window_save_preferences(self);
+  waytator_window_end_shortcut_capture(button);
+}
+
+static gboolean
+waytator_window_shortcut_capture_key_pressed(GtkEventControllerKey *controller,
+                                             guint                  keyval,
+                                             guint                  keycode,
+                                             GdkModifierType        state,
+                                             gpointer               user_data)
+{
+  GtkWidget *button = GTK_WIDGET(user_data);
   GdkModifierType modifiers;
   g_autofree char *accelerator = NULL;
 
@@ -659,41 +798,120 @@ waytator_window_copy_shortcut_capture_key_pressed(GtkEventControllerKey *control
 
   modifiers = state & gtk_accelerator_get_default_mod_mask();
 
-  if (keyval == GDK_KEY_Escape && modifiers == 0) {
-    gtk_button_set_has_frame(GTK_BUTTON(button), FALSE);
-    gtk_widget_remove_css_class(button, "suggested-action");
-    gtk_widget_set_sensitive(GTK_WIDGET(shortcut_label), TRUE);
-    g_object_set_data(G_OBJECT(button), "capturing", GINT_TO_POINTER(FALSE));
+  if (keyval == GDK_KEY_Shift_L || keyval == GDK_KEY_Shift_R
+      || keyval == GDK_KEY_Control_L || keyval == GDK_KEY_Control_R
+      || keyval == GDK_KEY_Alt_L || keyval == GDK_KEY_Alt_R
+      || keyval == GDK_KEY_Meta_L || keyval == GDK_KEY_Meta_R
+      || keyval == GDK_KEY_Super_L || keyval == GDK_KEY_Super_R
+      || keyval == GDK_KEY_Hyper_L || keyval == GDK_KEY_Hyper_R)
     return TRUE;
-  }
 
-  if (keyval == GDK_KEY_BackSpace || keyval == GDK_KEY_Delete) {
-    waytator_window_apply_copy_shortcut(self, "");
-    waytator_window_update_shortcut_label(shortcut_label, "");
-  } else {
-    if (keyval == GDK_KEY_Shift_L || keyval == GDK_KEY_Shift_R
-        || keyval == GDK_KEY_Control_L || keyval == GDK_KEY_Control_R
-        || keyval == GDK_KEY_Alt_L || keyval == GDK_KEY_Alt_R
-        || keyval == GDK_KEY_Meta_L || keyval == GDK_KEY_Meta_R
-        || keyval == GDK_KEY_Super_L || keyval == GDK_KEY_Super_R
-        || keyval == GDK_KEY_Hyper_L || keyval == GDK_KEY_Hyper_R)
-      return TRUE;
+  accelerator = gtk_accelerator_name(keyval, modifiers);
+  if (!waytator_window_parse_accelerator(accelerator, NULL, NULL))
+    return TRUE;
 
-    accelerator = gtk_accelerator_name(keyval, modifiers);
-    if (!waytator_window_parse_accelerator(accelerator, NULL, NULL))
-      return TRUE;
-
-    waytator_window_apply_copy_shortcut(self, accelerator);
-    waytator_window_update_shortcut_label(shortcut_label, self->copy_shortcut_accel);
-  }
-
-  waytator_window_save_preferences(self);
-  gtk_button_set_has_frame(GTK_BUTTON(button), FALSE);
-  gtk_widget_remove_css_class(button, "suggested-action");
-  gtk_widget_set_sensitive(GTK_WIDGET(shortcut_label), TRUE);
-  g_object_set_data(G_OBJECT(button), "capturing", GINT_TO_POINTER(FALSE));
-
+  waytator_window_finish_shortcut_capture(button, accelerator);
   return TRUE;
+}
+
+static void
+waytator_window_shortcut_capture_right_clicked(GtkGestureClick *gesture,
+                                               int              n_press,
+                                               double           x,
+                                               double           y,
+                                               gpointer         user_data)
+{
+  GtkWidget *button = GTK_WIDGET(user_data);
+
+  (void) n_press;
+  (void) x;
+  (void) y;
+
+  if (!GPOINTER_TO_INT(g_object_get_data(G_OBJECT(button), "capturing")))
+    return;
+
+  gtk_gesture_set_state(GTK_GESTURE(gesture), GTK_EVENT_SEQUENCE_CLAIMED);
+  waytator_window_finish_shortcut_capture(button, WAYTATOR_SHORTCUT_RIGHT_CLICK);
+}
+
+static void
+waytator_window_shortcut_capture_focus_left(GtkEventControllerFocus *controller,
+                                            gpointer                 user_data)
+{
+  (void) controller;
+
+  waytator_window_end_shortcut_capture(GTK_WIDGET(user_data));
+}
+
+static void
+waytator_window_shortcut_clear_clicked(GtkButton *clear_button,
+                                       gpointer   user_data)
+{
+  (void) clear_button;
+
+  waytator_window_finish_shortcut_capture(GTK_WIDGET(user_data), "");
+}
+
+static AdwActionRow *
+waytator_window_new_shortcut_row(WaytatorWindow  *self,
+                                 WaytatorShortcut shortcut)
+{
+  AdwActionRow *row = ADW_ACTION_ROW(adw_action_row_new());
+  GtkWidget *shortcut_label = gtk_shortcut_label_new(NULL);
+  GtkWidget *button = gtk_button_new();
+  GtkWidget *button_box = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
+  GtkWidget *clear_button = gtk_button_new_from_icon_name("window-close-symbolic");
+  GtkEventController *key_controller = gtk_event_controller_key_new();
+  GtkEventController *focus_controller = gtk_event_controller_focus_new();
+  GtkGesture *right_click = gtk_gesture_click_new();
+
+  adw_preferences_row_set_title(ADW_PREFERENCES_ROW(row), waytator_shortcuts[shortcut].title);
+  waytator_window_update_shortcut_label(GTK_SHORTCUT_LABEL(shortcut_label), self->shortcut_accels[shortcut]);
+  gtk_widget_set_valign(shortcut_label, GTK_ALIGN_CENTER);
+  gtk_widget_set_halign(shortcut_label, GTK_ALIGN_END);
+  gtk_widget_set_hexpand(button_box, FALSE);
+  gtk_widget_set_halign(button_box, GTK_ALIGN_END);
+  gtk_box_append(GTK_BOX(button_box), shortcut_label);
+  gtk_button_set_child(GTK_BUTTON(button), button_box);
+  gtk_widget_set_valign(button, GTK_ALIGN_CENTER);
+  gtk_widget_set_tooltip_text(button, "Click, then press a key combination or right-click");
+  gtk_button_set_has_frame(GTK_BUTTON(clear_button), FALSE);
+  gtk_widget_set_valign(clear_button, GTK_ALIGN_CENTER);
+  gtk_widget_set_tooltip_text(clear_button, "Unassign");
+  gtk_widget_set_visible(clear_button, *self->shortcut_accels[shortcut] != '\0');
+  gtk_gesture_single_set_button(GTK_GESTURE_SINGLE(right_click), GDK_BUTTON_SECONDARY);
+  gtk_widget_add_controller(button, key_controller);
+  gtk_widget_add_controller(button, GTK_EVENT_CONTROLLER(right_click));
+  gtk_widget_add_controller(button, focus_controller);
+  adw_action_row_add_suffix(row, button);
+  adw_action_row_add_suffix(row, clear_button);
+
+  g_object_set_data(G_OBJECT(button), "window", self);
+  g_object_set_data(G_OBJECT(button), "shortcut-label", shortcut_label);
+  g_object_set_data(G_OBJECT(button), "shortcut-id", GINT_TO_POINTER(shortcut));
+  g_object_set_data(G_OBJECT(button), "clear-button", clear_button);
+  g_signal_connect(button,
+                   "clicked",
+                   G_CALLBACK(waytator_window_begin_shortcut_capture),
+                   NULL);
+  g_signal_connect(key_controller,
+                   "key-pressed",
+                   G_CALLBACK(waytator_window_shortcut_capture_key_pressed),
+                   button);
+  g_signal_connect(right_click,
+                   "pressed",
+                   G_CALLBACK(waytator_window_shortcut_capture_right_clicked),
+                   button);
+  g_signal_connect(focus_controller,
+                   "leave",
+                   G_CALLBACK(waytator_window_shortcut_capture_focus_left),
+                   button);
+  g_signal_connect(clear_button,
+                   "clicked",
+                   G_CALLBACK(waytator_window_shortcut_clear_clicked),
+                   button);
+
+  return row;
 }
 
 static void
@@ -765,14 +983,17 @@ waytator_window_show_preferences(WaytatorWindow *self)
   AdwComboRow *row;
   AdwComboRow *background_mode_row;
   AdwSwitchRow *floating_controls_blur_row;
-  AdwSwitchRow *esc_closes_window_row;
-  AdwSwitchRow *copy_shortcut_enabled_row;
   AdwSwitchRow *auto_copy_latest_change_row;
+  AdwSwitchRow *close_on_copy_row;
   AdwSwitchRow *highlighter_overlap_row;
   AdwComboRow *angle_snap_modifier_row;
   AdwActionRow *opacity_row;
   AdwActionRow *floating_controls_opacity_row;
+  AdwActionRow *close_window_shortcut_row;
   AdwActionRow *copy_shortcut_row;
+  AdwActionRow *copy_keep_open_shortcut_row;
+  AdwActionRow *save_close_shortcut_row;
+  AdwActionRow *save_copy_close_shortcut_row;
   AdwActionRow *default_primary_color_row;
   AdwActionRow *default_highlighter_color_row;
   AdwActionRow *default_fill_color_row;
@@ -783,13 +1004,9 @@ waytator_window_show_preferences(WaytatorWindow *self)
   GtkSpinButton *opacity_spin_button;
   GtkAdjustment *floating_controls_opacity_adjustment;
   GtkSpinButton *floating_controls_opacity_spin_button;
-  GtkWidget *copy_shortcut_label;
-  GtkWidget *copy_shortcut_button;
-  GtkWidget *copy_shortcut_button_box;
   GtkWidget *default_primary_color_button;
   GtkWidget *default_highlighter_color_button;
   GtkWidget *default_fill_color_button;
-  GtkEventController *copy_shortcut_key_controller;
   GtkColorDialog *default_primary_color_dialog;
   GtkColorDialog *default_highlighter_color_dialog;
   GtkColorDialog *default_fill_color_dialog;
@@ -802,14 +1019,17 @@ waytator_window_show_preferences(WaytatorWindow *self)
   row = ADW_COMBO_ROW(adw_combo_row_new());
   background_mode_row = ADW_COMBO_ROW(adw_combo_row_new());
   floating_controls_blur_row = ADW_SWITCH_ROW(adw_switch_row_new());
-  esc_closes_window_row = ADW_SWITCH_ROW(adw_switch_row_new());
-  copy_shortcut_enabled_row = ADW_SWITCH_ROW(adw_switch_row_new());
   auto_copy_latest_change_row = ADW_SWITCH_ROW(adw_switch_row_new());
+  close_on_copy_row = ADW_SWITCH_ROW(adw_switch_row_new());
   highlighter_overlap_row = ADW_SWITCH_ROW(adw_switch_row_new());
   angle_snap_modifier_row = ADW_COMBO_ROW(adw_combo_row_new());
   opacity_row = ADW_ACTION_ROW(adw_action_row_new());
   floating_controls_opacity_row = ADW_ACTION_ROW(adw_action_row_new());
-  copy_shortcut_row = ADW_ACTION_ROW(adw_action_row_new());
+  close_window_shortcut_row = waytator_window_new_shortcut_row(self, WAYTATOR_SHORTCUT_CLOSE_WINDOW);
+  copy_shortcut_row = waytator_window_new_shortcut_row(self, WAYTATOR_SHORTCUT_COPY);
+  copy_keep_open_shortcut_row = waytator_window_new_shortcut_row(self, WAYTATOR_SHORTCUT_COPY_KEEP_OPEN);
+  save_close_shortcut_row = waytator_window_new_shortcut_row(self, WAYTATOR_SHORTCUT_SAVE_CLOSE);
+  save_copy_close_shortcut_row = waytator_window_new_shortcut_row(self, WAYTATOR_SHORTCUT_SAVE_COPY_CLOSE);
   default_primary_color_row = ADW_ACTION_ROW(adw_action_row_new());
   default_highlighter_color_row = ADW_ACTION_ROW(adw_action_row_new());
   default_fill_color_row = ADW_ACTION_ROW(adw_action_row_new());
@@ -817,10 +1037,6 @@ waytator_window_show_preferences(WaytatorWindow *self)
   opacity_spin_button = GTK_SPIN_BUTTON(gtk_spin_button_new(opacity_adjustment, 0.1, 1));
   floating_controls_opacity_adjustment = gtk_adjustment_new(self->floating_controls_opacity, 0.0, 1.0, 0.1, 0.1, 0.0);
   floating_controls_opacity_spin_button = GTK_SPIN_BUTTON(gtk_spin_button_new(floating_controls_opacity_adjustment, 0.1, 1));
-  copy_shortcut_label = gtk_shortcut_label_new(NULL);
-  copy_shortcut_button = gtk_button_new();
-  copy_shortcut_button_box = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
-  copy_shortcut_key_controller = gtk_event_controller_key_new();
   default_primary_color_dialog = gtk_color_dialog_new();
   default_highlighter_color_dialog = gtk_color_dialog_new();
   default_fill_color_dialog = gtk_color_dialog_new();
@@ -877,22 +1093,8 @@ waytator_window_show_preferences(WaytatorWindow *self)
   adw_action_row_add_suffix(floating_controls_opacity_row, GTK_WIDGET(floating_controls_opacity_spin_button));
   adw_action_row_set_activatable_widget(floating_controls_opacity_row,
                                         GTK_WIDGET(floating_controls_opacity_spin_button));
-  adw_preferences_row_set_title(ADW_PREFERENCES_ROW(esc_closes_window_row), "Escape closes window");
-  adw_switch_row_set_active(esc_closes_window_row, self->esc_closes_window);
-  adw_preferences_row_set_title(ADW_PREFERENCES_ROW(copy_shortcut_enabled_row), "Enable copy shortcut");
-  adw_switch_row_set_active(copy_shortcut_enabled_row, self->copy_shortcut_enabled);
-  adw_preferences_row_set_title(ADW_PREFERENCES_ROW(copy_shortcut_row), "Copy shortcut");
-  waytator_window_update_shortcut_label(GTK_SHORTCUT_LABEL(copy_shortcut_label), self->copy_shortcut_accel);
-  gtk_widget_set_valign(copy_shortcut_label, GTK_ALIGN_CENTER);
-  gtk_widget_set_halign(copy_shortcut_label, GTK_ALIGN_END);
-  gtk_widget_set_hexpand(copy_shortcut_button_box, FALSE);
-  gtk_widget_set_halign(copy_shortcut_button_box, GTK_ALIGN_END);
-  gtk_box_append(GTK_BOX(copy_shortcut_button_box), copy_shortcut_label);
-  gtk_button_set_child(GTK_BUTTON(copy_shortcut_button), copy_shortcut_button_box);
-  gtk_widget_set_valign(copy_shortcut_button, GTK_ALIGN_CENTER);
-  gtk_widget_add_controller(copy_shortcut_button, copy_shortcut_key_controller);
-  adw_action_row_add_suffix(copy_shortcut_row, copy_shortcut_button);
-  gtk_widget_set_sensitive(GTK_WIDGET(copy_shortcut_row), self->copy_shortcut_enabled);
+  gtk_widget_set_visible(GTK_WIDGET(copy_keep_open_shortcut_row),
+                         self->close_on_copy || waytator_window_closes_on_copy(self));
   adw_preferences_row_set_title(ADW_PREFERENCES_ROW(angle_snap_modifier_row), "Snap modifier");
   adw_combo_row_set_model(angle_snap_modifier_row, G_LIST_MODEL(angle_snap_model));
   switch (self->angle_snap_modifiers) {
@@ -914,7 +1116,13 @@ waytator_window_show_preferences(WaytatorWindow *self)
     break;
   }
   adw_preferences_row_set_title(ADW_PREFERENCES_ROW(auto_copy_latest_change_row), "Auto-copy latest change");
+  adw_action_row_set_subtitle(ADW_ACTION_ROW(auto_copy_latest_change_row),
+                              "Auto-copies never close the app; only explicit copies do");
   adw_switch_row_set_active(auto_copy_latest_change_row, self->auto_copy_latest_change);
+  adw_preferences_row_set_title(ADW_PREFERENCES_ROW(close_on_copy_row), "Close on copy");
+  adw_action_row_set_subtitle(ADW_ACTION_ROW(close_on_copy_row),
+                              "Copying closes the app and adds a “Copy without closing” button");
+  adw_switch_row_set_active(close_on_copy_row, self->close_on_copy);
   adw_preferences_row_set_title(ADW_PREFERENCES_ROW(highlighter_overlap_row), "Allow highlighter strokes to overlap");
   adw_switch_row_set_active(highlighter_overlap_row, self->allow_highlighter_overlap);
   gtk_color_dialog_set_with_alpha(default_fill_color_dialog, TRUE);
@@ -940,6 +1148,7 @@ waytator_window_show_preferences(WaytatorWindow *self)
   adw_preferences_group_add(group, GTK_WIDGET(row));
   adw_preferences_group_add(group, GTK_WIDGET(highlighter_overlap_row));
   adw_preferences_group_add(group, GTK_WIDGET(auto_copy_latest_change_row));
+  adw_preferences_group_add(group, GTK_WIDGET(close_on_copy_row));
   adw_preferences_group_add(group, GTK_WIDGET(default_primary_color_row));
   adw_preferences_group_add(group, GTK_WIDGET(default_highlighter_color_row));
   adw_preferences_group_add(group, GTK_WIDGET(default_fill_color_row));
@@ -947,9 +1156,11 @@ waytator_window_show_preferences(WaytatorWindow *self)
   adw_preferences_group_add(appearance_group, GTK_WIDGET(opacity_row));
   adw_preferences_group_add(appearance_group, GTK_WIDGET(floating_controls_blur_row));
   adw_preferences_group_add(appearance_group, GTK_WIDGET(floating_controls_opacity_row));
-  adw_preferences_group_add(shortcuts_group, GTK_WIDGET(esc_closes_window_row));
-  adw_preferences_group_add(shortcuts_group, GTK_WIDGET(copy_shortcut_enabled_row));
+  adw_preferences_group_add(shortcuts_group, GTK_WIDGET(close_window_shortcut_row));
   adw_preferences_group_add(shortcuts_group, GTK_WIDGET(copy_shortcut_row));
+  adw_preferences_group_add(shortcuts_group, GTK_WIDGET(copy_keep_open_shortcut_row));
+  adw_preferences_group_add(shortcuts_group, GTK_WIDGET(save_close_shortcut_row));
+  adw_preferences_group_add(shortcuts_group, GTK_WIDGET(save_copy_close_shortcut_row));
   adw_preferences_group_add(shortcuts_group, GTK_WIDGET(angle_snap_modifier_row));
   adw_preferences_page_add(page, group);
   adw_preferences_page_add(page, appearance_group);
@@ -976,14 +1187,6 @@ waytator_window_show_preferences(WaytatorWindow *self)
                    "value-changed",
                    G_CALLBACK(waytator_window_floating_controls_opacity_changed),
                    self);
-  g_signal_connect(esc_closes_window_row,
-                   "notify::active",
-                   G_CALLBACK(waytator_window_esc_closes_window_changed),
-                   self);
-  g_signal_connect(copy_shortcut_enabled_row,
-                   "notify::active",
-                   G_CALLBACK(waytator_window_copy_shortcut_enabled_changed),
-                   self);
   g_signal_connect(angle_snap_modifier_row,
                    "notify::selected",
                    G_CALLBACK(waytator_window_angle_snap_modifier_changed),
@@ -991,6 +1194,10 @@ waytator_window_show_preferences(WaytatorWindow *self)
   g_signal_connect(auto_copy_latest_change_row,
                    "notify::active",
                    G_CALLBACK(waytator_window_auto_copy_latest_change_changed),
+                   self);
+  g_signal_connect(close_on_copy_row,
+                   "notify::active",
+                   G_CALLBACK(waytator_window_close_on_copy_changed),
                    self);
   g_signal_connect(highlighter_overlap_row,
                    "notify::active",
@@ -1008,17 +1215,7 @@ waytator_window_show_preferences(WaytatorWindow *self)
                    "notify::rgba",
                    G_CALLBACK(waytator_window_default_fill_color_changed),
                    self);
-  g_object_set_data(G_OBJECT(copy_shortcut_enabled_row), "shortcut-row", copy_shortcut_row);
-  g_object_set_data(G_OBJECT(copy_shortcut_button), "window", self);
-  g_object_set_data(G_OBJECT(copy_shortcut_button), "shortcut-label", copy_shortcut_label);
-  g_signal_connect(copy_shortcut_button,
-                   "clicked",
-                   G_CALLBACK(waytator_window_apply_copy_shortcut_row),
-                   NULL);
-  g_signal_connect(copy_shortcut_key_controller,
-                   "key-pressed",
-                   G_CALLBACK(waytator_window_copy_shortcut_capture_key_pressed),
-                   copy_shortcut_button);
+  g_object_set_data(G_OBJECT(close_on_copy_row), "shortcut-row", copy_keep_open_shortcut_row);
 
   adw_dialog_present(ADW_DIALOG(dialog), GTK_WIDGET(self));
   g_object_unref(model);
@@ -1438,15 +1635,22 @@ waytator_window_restore_copy_button(gpointer user_data)
   return G_SOURCE_REMOVE;
 }
 
-void
-waytator_window_trigger_copy(WaytatorWindow *self)
+static void
+waytator_window_start_copy(WaytatorWindow *self,
+                           gboolean        close_after)
 {
   g_autoptr(GError) error = NULL;
   g_autoptr(GTask) task = NULL;
   WaytatorExportRequest *request;
 
-  if (self->texture == NULL || self->copy_in_progress)
+  if (self->texture == NULL)
     return;
+
+  if (self->copy_in_progress) {
+    if (close_after)
+      self->close_copy_pending = TRUE;
+    return;
+  }
 
   request = waytator_export_request_new(self->texture,
                                         waytator_window_strokes(self),
@@ -1464,9 +1668,30 @@ waytator_window_trigger_copy(WaytatorWindow *self)
   }
 
   self->copy_in_progress = TRUE;
+  self->close_after_copy = close_after;
   task = g_task_new(self, NULL, waytator_window_copy_export_ready, g_object_ref(self));
   g_task_set_task_data(task, request, (GDestroyNotify) waytator_export_request_free);
   g_task_run_in_thread(task, waytator_export_run_task);
+}
+
+void
+waytator_window_trigger_copy(WaytatorWindow *self)
+{
+  waytator_window_start_copy(self, FALSE);
+}
+
+static void
+waytator_window_update_copy_controls(WaytatorWindow *self)
+{
+  const gboolean closes_on_copy = waytator_window_closes_on_copy(self);
+
+  if (self->copy_button == NULL)
+    return;
+
+  gtk_widget_set_visible(GTK_WIDGET(self->copy_keep_open_button), closes_on_copy);
+  gtk_widget_set_tooltip_text(GTK_WIDGET(self->copy_button), closes_on_copy ? "Copy and close" : "Copy");
+  gtk_image_set_from_icon_name(self->copy_default_icon,
+                               closes_on_copy ? "waytator-copy-close-symbolic" : "waytator-copy-symbolic");
 }
 
 void
@@ -1821,6 +2046,89 @@ waytator_window_log_formats(const char      *label,
 }
 
 static void
+waytator_window_notify_and_close(WaytatorWindow *self,
+                                 const char     *title,
+                                 const char     *body)
+{
+  GApplication *app = G_APPLICATION(gtk_window_get_application(GTK_WINDOW(self)));
+
+  if (app != NULL) {
+    g_autoptr(GNotification) notification = g_notification_new(title);
+    GDBusConnection *connection = g_application_get_dbus_connection(app);
+
+    if (body != NULL)
+      g_notification_set_body(notification, body);
+    g_application_send_notification(app, NULL, notification);
+    if (connection != NULL)
+      g_dbus_connection_flush_sync(connection, NULL, NULL);
+  }
+
+  gtk_window_destroy(GTK_WINDOW(self));
+}
+
+static void
+waytator_window_clipboard_handed_off(GObject      *source_object,
+                                     GAsyncResult *result,
+                                     gpointer      user_data)
+{
+  WaytatorWindow *self = WAYTATOR_WINDOW(user_data);
+  GSubprocess *process = G_SUBPROCESS(source_object);
+  g_autoptr(GError) error = NULL;
+
+  self->copy_in_progress = FALSE;
+  if (!g_subprocess_communicate_finish(process, result, NULL, NULL, &error)
+      || !g_subprocess_get_successful(process)) {
+    g_autofree char *message = g_strdup_printf("wl-copy failed, so the window was left open%s%s",
+                                               error != NULL ? ": " : "",
+                                               error != NULL ? error->message : "");
+
+    g_clear_pointer(&self->saved_path, g_free);
+    waytator_window_show_error(self, message);
+    g_object_unref(self);
+    return;
+  }
+
+  if (self->saved_path != NULL)
+    waytator_window_notify_and_close(self, "Image saved and copied", self->saved_path);
+  else
+    waytator_window_notify_and_close(self, "Image copied to clipboard", NULL);
+  g_object_unref(self);
+}
+
+//the clipboard dies with us on wayland, so wl-copy has to hold the image once we exit
+static void
+waytator_window_hand_off_clipboard_and_close(WaytatorWindow     *self,
+                                             WaytatorCopyResult *copy_result)
+{
+  g_autoptr(GError) error = NULL;
+  g_autoptr(GSubprocess) process = NULL;
+
+  process = g_subprocess_new(G_SUBPROCESS_FLAGS_STDIN_PIPE
+                             | G_SUBPROCESS_FLAGS_STDOUT_SILENCE
+                             | G_SUBPROCESS_FLAGS_STDERR_SILENCE,
+                             &error,
+                             "wl-copy",
+                             "--type",
+                             copy_result->mime_type,
+                             NULL);
+  if (process == NULL) {
+    g_autofree char *message = g_strdup_printf("Could not run wl-copy, so the window was left open: %s",
+                                               error->message);
+
+    g_clear_pointer(&self->saved_path, g_free);
+    waytator_window_show_error(self, message);
+    return;
+  }
+
+  self->copy_in_progress = TRUE;
+  g_subprocess_communicate_async(process,
+                                 copy_result->bytes,
+                                 NULL,
+                                 waytator_window_clipboard_handed_off,
+                                 g_object_ref(self));
+}
+
+static void
 waytator_window_copy_export_ready(GObject      *source_object,
                                   GAsyncResult *result,
                                   gpointer      user_data)
@@ -1839,6 +2147,9 @@ waytator_window_copy_export_ready(GObject      *source_object,
   copy_result = g_task_propagate_pointer(G_TASK(result), &error);
   self->copy_in_progress = FALSE;
   if (copy_result == NULL) {
+    self->close_after_copy = FALSE;
+    self->close_copy_pending = FALSE;
+    g_clear_pointer(&self->saved_path, g_free);
     waytator_window_show_error(self, error->message);
     if (self->auto_copy_pending) {
       self->auto_copy_pending = FALSE;
@@ -1866,6 +2177,9 @@ waytator_window_copy_export_ready(GObject      *source_object,
   waytator_window_log_formats("Clipboard provider formats", provider_formats);
 
   if (!gdk_clipboard_set_content(clipboard, provider)) {
+    self->close_after_copy = FALSE;
+    self->close_copy_pending = FALSE;
+    g_clear_pointer(&self->saved_path, g_free);
     waytator_copy_result_free(copy_result);
     waytator_window_show_error(self, "Could not copy image to clipboard");
     g_object_unref(self);
@@ -1874,12 +2188,45 @@ waytator_window_copy_export_ready(GObject      *source_object,
 
   waytator_window_log_formats("Clipboard accepted formats", gdk_clipboard_get_formats(clipboard));
   waytator_window_flash_copy_success(self);
+  if (self->close_after_copy) {
+    self->close_after_copy = FALSE;
+    waytator_window_hand_off_clipboard_and_close(self, copy_result);
+    waytator_copy_result_free(copy_result);
+    g_object_unref(self);
+    return;
+  }
+
   waytator_copy_result_free(copy_result);
-  if (self->auto_copy_pending) {
+  if (self->close_copy_pending) {
+    self->close_copy_pending = FALSE;
+    self->auto_copy_pending = FALSE;
+    waytator_window_start_copy(self, TRUE);
+  } else if (self->auto_copy_pending) {
     self->auto_copy_pending = FALSE;
     waytator_window_maybe_auto_copy_latest_change(self);
   }
   g_object_unref(self);
+}
+
+static void
+waytator_window_set_saved_path(WaytatorWindow *self,
+                               GFile          *file)
+{
+  g_clear_pointer(&self->saved_path, g_free);
+  if (self->after_save != WAYTATOR_AFTER_SAVE_NONE)
+    self->saved_path = g_file_get_parse_name(file);
+}
+
+static void
+waytator_window_finish_after_save(WaytatorWindow *self)
+{
+  const WaytatorAfterSave after_save = self->after_save;
+
+  self->after_save = WAYTATOR_AFTER_SAVE_NONE;
+  if (after_save == WAYTATOR_AFTER_SAVE_CLOSE)
+    waytator_window_notify_and_close(self, "Image saved", self->saved_path);
+  else if (after_save == WAYTATOR_AFTER_SAVE_COPY_CLOSE)
+    waytator_window_start_copy(self, TRUE);
 }
 
 static void
@@ -1901,6 +2248,8 @@ waytator_window_save_export_ready(GObject      *source_object,
 
     self->save_spinner_timeout_id = 0;
     self->save_feedback_timeout_id = 0;
+    self->after_save = WAYTATOR_AFTER_SAVE_NONE;
+    g_clear_pointer(&self->saved_path, g_free);
     waytator_window_reset_save_button(self);
     waytator_window_show_error(self, error->message);
     g_object_unref(self);
@@ -1909,6 +2258,7 @@ waytator_window_save_export_ready(GObject      *source_object,
 
   waytator_window_mark_saved(self);
   waytator_window_finish_save_feedback(self);
+  waytator_window_finish_after_save(self);
   g_object_unref(self);
 }
 
@@ -1925,6 +2275,7 @@ waytator_window_save_copy_ready(GObject      *source_object,
 
   file = gtk_file_dialog_save_finish(GTK_FILE_DIALOG(source_object), result, &error);
   if (file == NULL) {
+    self->after_save = WAYTATOR_AFTER_SAVE_NONE;
     if (!waytator_window_error_is_user_dismissed(error))
       waytator_window_show_error(self, error->message);
 
@@ -1943,11 +2294,13 @@ waytator_window_save_copy_ready(GObject      *source_object,
                                         waytator_stroke_render,
                                         &error);
   if (request == NULL) {
+    self->after_save = WAYTATOR_AFTER_SAVE_NONE;
     waytator_window_show_error(self, error->message);
     g_object_unref(self);
     return;
   }
 
+  waytator_window_set_saved_path(self, file);
   waytator_window_begin_save_feedback(self);
   task = g_task_new(self, NULL, waytator_window_save_export_ready, g_object_ref(self));
   g_task_set_task_data(task, request, (GDestroyNotify) waytator_export_request_free);
@@ -1956,21 +2309,15 @@ waytator_window_save_copy_ready(GObject      *source_object,
   g_object_unref(self);
 }
 
-static void
-waytator_window_save_overwrite_action(GtkWidget  *widget,
-                                      const char *action_name,
-                                      GVariant   *parameter)
+static gboolean
+waytator_window_save_overwrite(WaytatorWindow *self)
 {
-  WaytatorWindow *self = WAYTATOR_WINDOW(widget);
   g_autoptr(GError) error = NULL;
   g_autoptr(GTask) task = NULL;
   WaytatorExportRequest *request;
 
-  (void) action_name;
-  (void) parameter;
-
   if (self->current_file == NULL)
-    return;
+    return FALSE;
 
   request = waytator_export_request_new(self->texture,
                                         waytator_window_strokes(self),
@@ -1984,27 +2331,37 @@ waytator_window_save_overwrite_action(GtkWidget  *widget,
                                         &error);
   if (request == NULL) {
     waytator_window_show_error(self, error->message);
-    return;
+    return FALSE;
   }
 
+  waytator_window_set_saved_path(self, self->current_file);
   waytator_window_begin_save_feedback(self);
   task = g_task_new(self, NULL, waytator_window_save_export_ready, g_object_ref(self));
   g_task_set_task_data(task, request, (GDestroyNotify) waytator_export_request_free);
   g_task_run_in_thread(task, waytator_export_run_task);
+  return TRUE;
 }
 
 static void
-waytator_window_save_copy_action(GtkWidget  *widget,
-                                 const char *action_name,
-                                 GVariant   *parameter)
+waytator_window_save_overwrite_action(GtkWidget  *widget,
+                                      const char *action_name,
+                                      GVariant   *parameter)
 {
   WaytatorWindow *self = WAYTATOR_WINDOW(widget);
-  g_autoptr(GtkFileDialog) dialog = gtk_file_dialog_new();
-  g_autofree char *basename = NULL;
-  g_autofree char *copy_name = NULL;
 
   (void) action_name;
   (void) parameter;
+
+  self->after_save = WAYTATOR_AFTER_SAVE_NONE;
+  waytator_window_save_overwrite(self);
+}
+
+static void
+waytator_window_show_save_dialog(WaytatorWindow *self)
+{
+  g_autoptr(GtkFileDialog) dialog = gtk_file_dialog_new();
+  g_autofree char *basename = NULL;
+  g_autofree char *copy_name = NULL;
 
   if (self->current_file != NULL)
     basename = g_file_get_basename(self->current_file);
@@ -2019,6 +2376,67 @@ waytator_window_save_copy_action(GtkWidget  *widget,
                        NULL,
                        waytator_window_save_copy_ready,
                        g_object_ref(self));
+}
+
+static void
+waytator_window_save_copy_action(GtkWidget  *widget,
+                                 const char *action_name,
+                                 GVariant   *parameter)
+{
+  WaytatorWindow *self = WAYTATOR_WINDOW(widget);
+
+  (void) action_name;
+  (void) parameter;
+
+  self->after_save = WAYTATOR_AFTER_SAVE_NONE;
+  waytator_window_show_save_dialog(self);
+}
+
+static void
+waytator_window_save_then(WaytatorWindow   *self,
+                          WaytatorAfterSave after_save)
+{
+  if (self->texture == NULL || self->after_save != WAYTATOR_AFTER_SAVE_NONE)
+    return;
+
+  self->after_save = after_save;
+  g_clear_pointer(&self->saved_path, g_free);
+
+  if (self->current_file == NULL) {
+    waytator_window_show_save_dialog(self);
+    return;
+  }
+
+  if (!waytator_window_has_unsaved_changes(self)) {
+    waytator_window_set_saved_path(self, self->current_file);
+    waytator_window_finish_after_save(self);
+    return;
+  }
+
+  if (!waytator_window_save_overwrite(self))
+    self->after_save = WAYTATOR_AFTER_SAVE_NONE;
+}
+
+static void
+waytator_window_save_and_close_action(GtkWidget  *widget,
+                                      const char *action_name,
+                                      GVariant   *parameter)
+{
+  (void) action_name;
+  (void) parameter;
+
+  waytator_window_save_then(WAYTATOR_WINDOW(widget), WAYTATOR_AFTER_SAVE_CLOSE);
+}
+
+static void
+waytator_window_save_copy_and_close_action(GtkWidget  *widget,
+                                           const char *action_name,
+                                           GVariant   *parameter)
+{
+  (void) action_name;
+  (void) parameter;
+
+  waytator_window_save_then(WAYTATOR_WINDOW(widget), WAYTATOR_AFTER_SAVE_COPY_CLOSE);
 }
 
 static void
@@ -2226,7 +2644,33 @@ waytator_window_copy_clicked(GtkButton *button,
 
   (void) button;
 
-  waytator_window_trigger_copy(self);
+  g_clear_pointer(&self->saved_path, g_free);
+  waytator_window_start_copy(self, waytator_window_closes_on_copy(self));
+}
+
+static void
+waytator_window_copy_keep_open_clicked(GtkButton *button,
+                                       gpointer   user_data)
+{
+  (void) button;
+
+  waytator_window_start_copy(WAYTATOR_WINDOW(user_data), FALSE);
+}
+
+static void
+waytator_window_copy_keep_open_action(GtkWidget  *widget,
+                                      const char *action_name,
+                                      GVariant   *parameter)
+{
+  WaytatorWindow *self = WAYTATOR_WINDOW(widget);
+
+  (void) action_name;
+  (void) parameter;
+
+  if (!gtk_widget_is_sensitive(GTK_WIDGET(self->copy_button)))
+    return;
+
+  waytator_window_start_copy(self, FALSE);
 }
 
 static void
@@ -2549,7 +2993,11 @@ waytator_window_dispose(GObject *object)
     gtk_style_context_remove_provider_for_display(gdk_display_get_default(),
                                                   GTK_STYLE_PROVIDER(self->widget_css_provider));
   g_clear_object(&self->widget_css_provider);
-  g_clear_pointer(&self->copy_shortcut_accel, g_free);
+  for (int i = 0; i < WAYTATOR_N_SHORTCUTS; i++) {
+    g_clear_pointer(&self->shortcut_accels[i], g_free);
+    g_clear_pointer(&self->shortcut_overrides[i], g_free);
+  }
+  g_clear_pointer(&self->saved_path, g_free);
   g_clear_pointer(&self->active_touch_sequences, g_hash_table_unref);
   g_clear_pointer(&self->touch_tap_points, g_hash_table_unref);
 
@@ -2613,6 +3061,7 @@ waytator_window_bind_template_children(GtkWidgetClass *widget_class)
   gtk_widget_class_bind_template_child(widget_class, WaytatorWindow, save_working_icon);
   gtk_widget_class_bind_template_child(widget_class, WaytatorWindow, save_success_icon);
   gtk_widget_class_bind_template_child(widget_class, WaytatorWindow, copy_button);
+  gtk_widget_class_bind_template_child(widget_class, WaytatorWindow, copy_keep_open_button);
   gtk_widget_class_bind_template_child(widget_class, WaytatorWindow, app_menu_button);
   gtk_widget_class_bind_template_child(widget_class, WaytatorWindow, end_window_controls);
   gtk_widget_class_bind_template_child(widget_class, WaytatorWindow, copy_icon_stack);
@@ -2638,10 +3087,13 @@ waytator_window_install_actions(GtkWidgetClass *widget_class)
   gtk_widget_class_install_action(widget_class, "win.open-current-file", NULL, waytator_window_open_current_file_action);
   gtk_widget_class_install_action(widget_class, "win.open-containing-folder", NULL, waytator_window_open_containing_folder_action);
   gtk_widget_class_install_action(widget_class, "win.copy-buffer", NULL, waytator_window_copy_action);
+  gtk_widget_class_install_action(widget_class, "win.copy-keep-open", NULL, waytator_window_copy_keep_open_action);
   gtk_widget_class_install_action(widget_class, "win.dismiss", NULL, waytator_window_dismiss_action);
   gtk_widget_class_install_action(widget_class, "win.close-window", NULL, waytator_window_close_window_action);
   gtk_widget_class_install_action(widget_class, "win.save", NULL, waytator_window_save_overwrite_action);
   gtk_widget_class_install_action(widget_class, "win.save-copy", NULL, waytator_window_save_copy_action);
+  gtk_widget_class_install_action(widget_class, "win.save-and-close", NULL, waytator_window_save_and_close_action);
+  gtk_widget_class_install_action(widget_class, "win.save-copy-and-close", NULL, waytator_window_save_copy_and_close_action);
   gtk_widget_class_install_action(widget_class, "win.rotate-counter-clockwise", NULL, waytator_window_rotate_counter_clockwise_action);
   gtk_widget_class_install_action(widget_class, "win.flip-horizontal", NULL, waytator_window_flip_horizontal_action);
   gtk_widget_class_install_action(widget_class, "win.flip-vertical", NULL, waytator_window_flip_vertical_action);
@@ -2668,8 +3120,6 @@ waytator_window_init_state(WaytatorWindow *self)
   self->eraser_style = WAYTATOR_ERASER_STYLE_DUAL_RING;
   self->window_background_mode = WAYTATOR_WINDOW_BACKGROUND_OPAQUE;
   self->window_background_opacity = 0.8;
-  self->esc_closes_window = TRUE;
-  self->copy_shortcut_enabled = TRUE;
   self->angle_snap_modifiers = GDK_SHIFT_MASK;
   self->allow_highlighter_overlap = TRUE;
   self->floating_controls_blur = TRUE;
@@ -2678,7 +3128,13 @@ waytator_window_init_state(WaytatorWindow *self)
   self->default_primary_color = (GdkRGBA){0.96, 0.2, 0.28, 1.0};
   self->default_highlighter_color = (GdkRGBA){1.0, 0.91, 0.2, 1.0};
   self->default_fill_color = (GdkRGBA){0.96, 0.2, 0.28, 0.0};
-  waytator_window_apply_copy_shortcut(self, "<Primary>c");
+  self->close_on_copy = FALSE;
+  self->close_on_copy_override = -1;
+  waytator_window_apply_shortcut(self, WAYTATOR_SHORTCUT_CLOSE_WINDOW, "Escape");
+  waytator_window_apply_shortcut(self, WAYTATOR_SHORTCUT_COPY, "<Primary>c");
+  waytator_window_apply_shortcut(self, WAYTATOR_SHORTCUT_COPY_KEEP_OPEN, "<Primary><Shift>c");
+  waytator_window_apply_shortcut(self, WAYTATOR_SHORTCUT_SAVE_CLOSE, "");
+  waytator_window_apply_shortcut(self, WAYTATOR_SHORTCUT_SAVE_COPY_CLOSE, "");
   waytator_window_load_preferences(self);
 
   for (int i = 0; i <= WAYTATOR_TOOL_BLUR; i++)
@@ -2846,6 +3302,8 @@ waytator_window_init(WaytatorWindow *self)
   waytator_window_setup_controllers(self);
   waytator_window_setup_signals(self);
   g_signal_connect(self->copy_button, "clicked", G_CALLBACK(waytator_window_copy_clicked), self);
+  g_signal_connect(self->copy_keep_open_button, "clicked", G_CALLBACK(waytator_window_copy_keep_open_clicked), self);
+  waytator_window_update_copy_controls(self);
   g_signal_connect(self->ocr_panel_toggle_button, "toggled", G_CALLBACK(waytator_window_ocr_panel_toggled), self);
   g_signal_connect(self->ocr_panel_close_button, "clicked", G_CALLBACK(waytator_window_ocr_panel_close_clicked), self);
   g_signal_connect(self->ocr_panel_bottom_sheet, "notify::open", G_CALLBACK(waytator_window_ocr_panel_open_changed), self);

@@ -568,7 +568,7 @@
 
                                     <child>
                                       <object class="GtkImage" id="copy_default_icon">
-                                        <property name="icon-name">edit-copy-symbolic</property>
+                                        <property name="icon-name">waytator-copy-symbolic</property>
                                       </object>
                                     </child>
 
@@ -579,6 +579,15 @@
                                     </child>
                                   </object>
                                 </property>
+                              </object>
+                            </child>
+
+                            <child>
+                              <object class="GtkButton" id="copy_keep_open_button">
+                                <property name="tooltip-text">Copy without closing</property>
+                                <property name="icon-name">waytator-copy-symbolic</property>
+                                <property name="sensitive">False</property>
+                                <property name="visible">False</property>
                               </object>
                             </child>
                           </object>

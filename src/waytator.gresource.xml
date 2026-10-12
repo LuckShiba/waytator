@@ -17,6 +17,8 @@
     <file>ui/icons/scanner-symbolic.svg</file>
     <file>ui/icons/crop-symbolic.svg</file>
     <file>ui/icons/rotate-symbolic.svg</file>
+    <file>ui/icons/copy-symbolic.svg</file>
+    <file>ui/icons/copy-close-symbolic.svg</file>
   </gresource>
   <gresource prefix="/dev/faetalize/waytator/icons/hicolor/scalable/actions">
     <file alias="waytator-pan-symbolic.svg">ui/icons/hand-openyay-symbolic.svg</file>
@@ -33,6 +35,8 @@
     <file alias="waytator-blur-symbolic.svg">ui/icons/blur-symbolic.svg</file>
     <file alias="waytator-scanner-symbolic.svg">ui/icons/scanner-symbolic.svg</file>
     <file alias="waytator-rotate-counter-clockwise-symbolic.svg">ui/icons/rotate-symbolic.svg</file>
+    <file alias="waytator-copy-symbolic.svg">ui/icons/copy-symbolic.svg</file>
+    <file alias="waytator-copy-close-symbolic.svg">ui/icons/copy-close-symbolic.svg</file>
   </gresource>
   <gresource prefix="/dev/faetalize/waytator/icons/hicolor/128x128/apps">
     <file alias="dev.faetalize.waytator.png">ui/icons/icon.png</file>

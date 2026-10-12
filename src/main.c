@@ -114,6 +114,42 @@ app_open(GApplication  *app,
   gtk_window_present(GTK_WINDOW(window));
 }
 
+#define APP_USAGE \
+  "Usage: %s [OPTIONS] [IMAGE|-|--stdin]\n" \
+  "\n" \
+  "  --name NAME                             Name for an image read from stdin\n" \
+  "  --close-on-copy, --no-close-on-copy     Override the \"Close on copy\" preference\n" \
+  "  --close-window-shortcut SHORTCUT        Override a shortcut for this launch\n" \
+  "  --copy-shortcut SHORTCUT\n" \
+  "  --copy-without-closing-shortcut SHORTCUT\n" \
+  "  --save-and-close-shortcut SHORTCUT\n" \
+  "  --save-copy-and-close-shortcut SHORTCUT\n" \
+  "\n" \
+  "SHORTCUT is a key or key combination such as \"s\" or \"<Control><Shift>s\",\n" \
+  "\"right-click\", or \"none\". Overrides last for this launch only.\n"
+
+static const struct {
+  const char *option;
+  const char *name;
+} app_shortcut_options[] = {
+  { "--close-window-shortcut", "close-window" },
+  { "--copy-shortcut", "copy" },
+  { "--copy-without-closing-shortcut", "copy-without-closing" },
+  { "--save-and-close-shortcut", "save-and-close" },
+  { "--save-copy-and-close-shortcut", "save-copy-and-close" },
+};
+
+static int
+app_find_shortcut_option(const char *argument)
+{
+  for (guint i = 0; i < G_N_ELEMENTS(app_shortcut_options); i++) {
+    if (g_strcmp0(argument, app_shortcut_options[i].option) == 0)
+      return i;
+  }
+
+  return -1;
+}
+
 static int
 app_command_line(GApplication            *app,
                  GApplicationCommandLine *command_line,
@@ -123,6 +159,8 @@ app_command_line(GApplication            *app,
   int argc = 0;
   int status = 0;
   gboolean use_stdin = FALSE;
+  int close_on_copy = -1;
+  const char *shortcuts[G_N_ELEMENTS(app_shortcut_options)] = { NULL };
   const char *stdin_name = "stdin.png";
   g_autoptr(GError) error = NULL;
   g_autoptr(GFile) file = NULL;
@@ -132,15 +170,46 @@ app_command_line(GApplication            *app,
 
   arguments = g_application_command_line_get_arguments(command_line, &argc);
 
-  if (argc > 4) {
-    g_application_command_line_printerr(command_line,
-                                        "Usage: %s [--name NAME] [IMAGE|-|--stdin]\n",
-                                        arguments[0]);
-    status = 1;
-    goto done;
-  }
-
   for (int i = 1; i < argc; i++) {
+    const int shortcut_option = app_find_shortcut_option(arguments[i]);
+
+    if (shortcut_option >= 0) {
+      if (i + 1 >= argc) {
+        g_application_command_line_printerr(command_line,
+                                            "Missing value for %s\n",
+                                            arguments[i]);
+        status = 1;
+        goto done;
+      }
+
+      if (!waytator_window_shortcut_is_valid(arguments[i + 1])) {
+        g_application_command_line_printerr(command_line,
+                                            "Invalid shortcut for %s: %s\n",
+                                            arguments[i],
+                                            arguments[i + 1]);
+        status = 1;
+        goto done;
+      }
+
+      shortcuts[shortcut_option] = arguments[++i];
+      continue;
+    }
+
+    if (g_strcmp0(arguments[i], "--close-on-copy") == 0) {
+      close_on_copy = 1;
+      continue;
+    }
+
+    if (g_strcmp0(arguments[i], "--no-close-on-copy") == 0) {
+      close_on_copy = 0;
+      continue;
+    }
+
+    if (g_strcmp0(arguments[i], "--help") == 0 || g_strcmp0(arguments[i], "-h") == 0) {
+      g_application_command_line_print(command_line, APP_USAGE, arguments[0]);
+      goto done;
+    }
+
     if (g_strcmp0(arguments[i], "--name") == 0) {
       if (i + 1 >= argc) {
         g_application_command_line_printerr(command_line,
@@ -161,15 +230,20 @@ app_command_line(GApplication            *app,
     } else if (file == NULL) {
       file = g_application_command_line_create_file_for_arg(command_line, arguments[i]);
     } else {
-      g_application_command_line_printerr(command_line,
-                                          "Usage: %s [--name NAME] [IMAGE|-|--stdin]\n",
-                                          arguments[0]);
+      g_application_command_line_printerr(command_line, APP_USAGE, arguments[0]);
       status = 1;
       goto done;
     }
   }
 
   window = app_get_or_create_window(ADW_APPLICATION(app));
+  waytator_window_clear_overrides(window);
+  if (close_on_copy >= 0)
+    waytator_window_set_close_on_copy_override(window, close_on_copy);
+  for (guint i = 0; i < G_N_ELEMENTS(app_shortcut_options); i++) {
+    if (shortcuts[i] != NULL)
+      waytator_window_set_shortcut_override(window, app_shortcut_options[i].name, shortcuts[i]);
+  }
 
   if (use_stdin) {
     g_autoptr(GBytes) bytes = NULL;

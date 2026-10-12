@@ -34,12 +34,15 @@ yay -S waytator
 - `libadwaita-1`
 - a C compiler such as `gcc` or `clang`
 
-2) Recommended runtime dependency:
+2) Required runtime dependency:
+
+- `wl-clipboard`, so a copied image survives the app closing (close on copy) and for niri screenshot clipboard support
+
+3) Recommended runtime dependency:
 
 - `tesseract` for OCR support
-- `wl-clipboard` for niri screenshot clipboard support
 
-3) Install into `~/.local`:
+4) Install into `~/.local`:
 
 ```bash
 meson setup build --buildtype=release --prefix="$HOME/.local" # Override the prefix if needed
@@ -95,6 +98,33 @@ It can also be run independently:
 ```bash
 waytator
 ```
+
+### Closing after copy or save
+
+Enable "Close on copy" in the preferences to make the copy button and copy shortcut close the app once the image is on the clipboard. A "Copy without closing" button (default shortcut `Ctrl+Shift+C`) appears next to it for when you want to keep editing. Auto-copy never closes the app.
+
+"Save and close" and "Save, copy and close" have no shortcut by default; assign one in the preferences. Images that did not come from a file open the save dialog first.
+
+Shortcuts can be a key, a key combination, or a right click on the canvas, and each one can be unassigned in the preferences. Closing the window (default `Escape`) and copying (default `Ctrl+C`) are assignable the same way.
+
+All of this can be overridden for a single launch, which is handy in screenshot scripts:
+
+```bash
+grim -g "$(slurp)" - | waytator --close-on-copy
+waytator --no-close-on-copy path/to/image.png
+grim -g "$(slurp)" - | waytator --save-copy-and-close-shortcut right-click
+```
+
+| Option | Effect |
+| --- | --- |
+| `--close-on-copy`, `--no-close-on-copy` | Override the "Close on copy" preference |
+| `--close-window-shortcut SHORTCUT` | Override the "Close window" shortcut |
+| `--copy-shortcut SHORTCUT` | Override the copy shortcut |
+| `--copy-without-closing-shortcut SHORTCUT` | Override the "Copy without closing" shortcut |
+| `--save-and-close-shortcut SHORTCUT` | Override the "Save and close" shortcut |
+| `--save-copy-and-close-shortcut SHORTCUT` | Override the "Save, copy and close" shortcut |
+
+`SHORTCUT` is a key or key combination such as `s` or `<Control><Shift>s`, `right-click`, or `none`.
 
 If you're on niri, just bind your screenshot keybind to `./scripts/screenshot-to-waytator.sh`, this will automatically open screenshots into `waytator` after they are captured for editing. Saving from niri's screenshot UI opens the saved file; pressing `Ctrl+C` in the screenshot UI opens the copied image directly from the clipboard. Clipboard captures use a timestamped name by default; override it with `WAYTATOR_SCREENSHOT_NAME`.
 
