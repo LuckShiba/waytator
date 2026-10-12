@@ -700,6 +700,7 @@ static void
 waytator_window_update_window_background(WaytatorWindow *self)
 {
   g_autofree char *css = NULL;
+  char opacity[G_ASCII_DTOSTR_BUF_SIZE];
 
   if (self->window_css_provider == NULL)
     return;
@@ -716,9 +717,11 @@ waytator_window_update_window_background(WaytatorWindow *self)
     return;
   }
 
-  css = g_strdup_printf("window.waytator-window { background: alpha(@window_bg_color, %.1f); background-color: alpha(@window_bg_color, %.1f); }",
-                        self->window_background_opacity,
-                        self->window_background_opacity);
+  // printf would use the locale's decimal separator, which is not valid css
+  g_ascii_formatd(opacity, sizeof opacity, "%.1f", self->window_background_opacity);
+  css = g_strdup_printf("window.waytator-window { background: alpha(@window_bg_color, %s); background-color: alpha(@window_bg_color, %s); }",
+                        opacity,
+                        opacity);
   gtk_css_provider_load_from_string(self->window_css_provider, css);
 }
 
@@ -727,15 +730,17 @@ waytator_window_update_widget_appearance(WaytatorWindow *self)
 {
   g_autofree char *css = NULL;
   const char *blur = self->floating_controls_blur ? "blur(18px)" : "none";
+  char opacity[G_ASCII_DTOSTR_BUF_SIZE];
 
   if (self->widget_css_provider == NULL)
     return;
 
+  g_ascii_formatd(opacity, sizeof opacity, "%.2f", self->floating_controls_opacity);
   css = g_strdup_printf(
     ".overlay-pill, bottom-sheet > sheet.background {"
     " color: white;"
-    " background: alpha(black, %.2f);"
-    " background-color: alpha(black, %.2f);"
+    " background: alpha(black, %s);"
+    " background-color: alpha(black, %s);"
     " border: 1px solid alpha(white, 0.12);"
     " border-radius: 14px;"
     " backdrop-filter: %s;"
@@ -743,8 +748,8 @@ waytator_window_update_widget_appearance(WaytatorWindow *self)
     " background-image: none;"
     "}"
     ".app-chrome-group { border-color: alpha(white, 0.16); }",
-    self->floating_controls_opacity,
-    self->floating_controls_opacity,
+    opacity,
+    opacity,
     blur);
   gtk_css_provider_load_from_string(self->widget_css_provider, css);
 }
