@@ -108,6 +108,7 @@ struct _WaytatorWindow {
   gboolean auto_copy_pending;
   gboolean close_after_copy;
   gboolean close_copy_pending;
+  gboolean save_in_progress;
   WaytatorAfterSave after_save;
   char *saved_path;
   guint ocr_generation;

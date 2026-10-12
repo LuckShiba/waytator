@@ -105,7 +105,7 @@ Enable "Close on copy" in the preferences to make the copy button and copy short
 
 "Save and close" and "Save, copy and close" have no shortcut by default; assign one in the preferences. Images that did not come from a file open the save dialog first.
 
-Shortcuts can be a key, a key combination, or a right click on the canvas, and each one can be unassigned in the preferences. Closing the window (default `Escape`) and copying (default `Ctrl+C`) are assignable the same way.
+Shortcuts can be a key, a key combination, or a right click on the canvas, and each one can be unassigned in the preferences. Closing the window (default `Escape`), copying (default `Ctrl+C`) and saving (default `Ctrl+S`) are assignable the same way.
 
 All of this can be overridden for a single launch, which is handy in screenshot scripts:
 
@@ -121,6 +121,7 @@ grim -g "$(slurp)" - | waytator --save-copy-and-close-shortcut right-click
 | `--close-window-shortcut SHORTCUT` | Override the "Close window" shortcut |
 | `--copy-shortcut SHORTCUT` | Override the copy shortcut |
 | `--copy-without-closing-shortcut SHORTCUT` | Override the "Copy without closing" shortcut |
+| `--save-shortcut SHORTCUT` | Override the "Save" shortcut |
 | `--save-and-close-shortcut SHORTCUT` | Override the "Save and close" shortcut |
 | `--save-copy-and-close-shortcut SHORTCUT` | Override the "Save, copy and close" shortcut |
 

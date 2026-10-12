@@ -120,6 +120,7 @@ static const struct {
   [WAYTATOR_SHORTCUT_CLOSE_WINDOW] = { "close_window_shortcut", "close-window", "Close window", "win.close-window" },
   [WAYTATOR_SHORTCUT_COPY] = { "copy_shortcut", "copy", "Copy", "win.copy-buffer" },
   [WAYTATOR_SHORTCUT_COPY_KEEP_OPEN] = { "copy_keep_open_shortcut", "copy-without-closing", "Copy without closing", "win.copy-keep-open" },
+  [WAYTATOR_SHORTCUT_SAVE] = { "save_shortcut", "save", "Save", "win.save-image" },
   [WAYTATOR_SHORTCUT_SAVE_CLOSE] = { "save_close_shortcut", "save-and-close", "Save and close", "win.save-and-close" },
   [WAYTATOR_SHORTCUT_SAVE_COPY_CLOSE] = { "save_copy_close_shortcut", "save-copy-and-close", "Save, copy and close", "win.save-copy-and-close" },
 };
@@ -992,6 +993,7 @@ waytator_window_show_preferences(WaytatorWindow *self)
   AdwActionRow *close_window_shortcut_row;
   AdwActionRow *copy_shortcut_row;
   AdwActionRow *copy_keep_open_shortcut_row;
+  AdwActionRow *save_shortcut_row;
   AdwActionRow *save_close_shortcut_row;
   AdwActionRow *save_copy_close_shortcut_row;
   AdwActionRow *default_primary_color_row;
@@ -1028,6 +1030,7 @@ waytator_window_show_preferences(WaytatorWindow *self)
   close_window_shortcut_row = waytator_window_new_shortcut_row(self, WAYTATOR_SHORTCUT_CLOSE_WINDOW);
   copy_shortcut_row = waytator_window_new_shortcut_row(self, WAYTATOR_SHORTCUT_COPY);
   copy_keep_open_shortcut_row = waytator_window_new_shortcut_row(self, WAYTATOR_SHORTCUT_COPY_KEEP_OPEN);
+  save_shortcut_row = waytator_window_new_shortcut_row(self, WAYTATOR_SHORTCUT_SAVE);
   save_close_shortcut_row = waytator_window_new_shortcut_row(self, WAYTATOR_SHORTCUT_SAVE_CLOSE);
   save_copy_close_shortcut_row = waytator_window_new_shortcut_row(self, WAYTATOR_SHORTCUT_SAVE_COPY_CLOSE);
   default_primary_color_row = ADW_ACTION_ROW(adw_action_row_new());
@@ -1159,6 +1162,7 @@ waytator_window_show_preferences(WaytatorWindow *self)
   adw_preferences_group_add(shortcuts_group, GTK_WIDGET(close_window_shortcut_row));
   adw_preferences_group_add(shortcuts_group, GTK_WIDGET(copy_shortcut_row));
   adw_preferences_group_add(shortcuts_group, GTK_WIDGET(copy_keep_open_shortcut_row));
+  adw_preferences_group_add(shortcuts_group, GTK_WIDGET(save_shortcut_row));
   adw_preferences_group_add(shortcuts_group, GTK_WIDGET(save_close_shortcut_row));
   adw_preferences_group_add(shortcuts_group, GTK_WIDGET(save_copy_close_shortcut_row));
   adw_preferences_group_add(shortcuts_group, GTK_WIDGET(angle_snap_modifier_row));
@@ -1770,6 +1774,7 @@ waytator_window_begin_save_feedback(WaytatorWindow *self)
   self->save_feedback_timeout_id = 0;
   self->save_feedback_started_at = g_get_monotonic_time();
 
+  self->save_in_progress = TRUE;
   gtk_stack_set_visible_child(self->save_icon_stack, GTK_WIDGET(self->save_working_icon));
   gtk_widget_action_set_enabled(GTK_WIDGET(self), "win.save", FALSE);
   gtk_widget_action_set_enabled(GTK_WIDGET(self), "win.save-copy", FALSE);
@@ -2239,6 +2244,7 @@ waytator_window_save_export_ready(GObject      *source_object,
 
   (void) source_object;
 
+  self->save_in_progress = FALSE;
   if (!g_task_propagate_boolean(G_TASK(result), &error)) {
     if (self->save_spinner_timeout_id != 0)
       g_source_remove(self->save_spinner_timeout_id);
@@ -2392,11 +2398,31 @@ waytator_window_save_copy_action(GtkWidget  *widget,
   waytator_window_show_save_dialog(self);
 }
 
+//unlike win.save this also works for images that have no file yet, by asking where to put them
+static void
+waytator_window_save_image_action(GtkWidget  *widget,
+                                  const char *action_name,
+                                  GVariant   *parameter)
+{
+  WaytatorWindow *self = WAYTATOR_WINDOW(widget);
+
+  (void) action_name;
+  (void) parameter;
+
+  if (self->texture == NULL || self->save_in_progress || self->after_save != WAYTATOR_AFTER_SAVE_NONE)
+    return;
+
+  if (self->current_file == NULL)
+    waytator_window_show_save_dialog(self);
+  else if (waytator_window_has_unsaved_changes(self))
+    waytator_window_save_overwrite(self);
+}
+
 static void
 waytator_window_save_then(WaytatorWindow   *self,
                           WaytatorAfterSave after_save)
 {
-  if (self->texture == NULL || self->after_save != WAYTATOR_AFTER_SAVE_NONE)
+  if (self->texture == NULL || self->save_in_progress || self->after_save != WAYTATOR_AFTER_SAVE_NONE)
     return;
 
   self->after_save = after_save;
@@ -3092,6 +3118,7 @@ waytator_window_install_actions(GtkWidgetClass *widget_class)
   gtk_widget_class_install_action(widget_class, "win.close-window", NULL, waytator_window_close_window_action);
   gtk_widget_class_install_action(widget_class, "win.save", NULL, waytator_window_save_overwrite_action);
   gtk_widget_class_install_action(widget_class, "win.save-copy", NULL, waytator_window_save_copy_action);
+  gtk_widget_class_install_action(widget_class, "win.save-image", NULL, waytator_window_save_image_action);
   gtk_widget_class_install_action(widget_class, "win.save-and-close", NULL, waytator_window_save_and_close_action);
   gtk_widget_class_install_action(widget_class, "win.save-copy-and-close", NULL, waytator_window_save_copy_and_close_action);
   gtk_widget_class_install_action(widget_class, "win.rotate-counter-clockwise", NULL, waytator_window_rotate_counter_clockwise_action);
@@ -3133,6 +3160,7 @@ waytator_window_init_state(WaytatorWindow *self)
   waytator_window_apply_shortcut(self, WAYTATOR_SHORTCUT_CLOSE_WINDOW, "Escape");
   waytator_window_apply_shortcut(self, WAYTATOR_SHORTCUT_COPY, "<Primary>c");
   waytator_window_apply_shortcut(self, WAYTATOR_SHORTCUT_COPY_KEEP_OPEN, "<Primary><Shift>c");
+  waytator_window_apply_shortcut(self, WAYTATOR_SHORTCUT_SAVE, "<Primary>s");
   waytator_window_apply_shortcut(self, WAYTATOR_SHORTCUT_SAVE_CLOSE, "");
   waytator_window_apply_shortcut(self, WAYTATOR_SHORTCUT_SAVE_COPY_CLOSE, "");
   waytator_window_load_preferences(self);

@@ -122,6 +122,7 @@ app_open(GApplication  *app,
   "  --close-window-shortcut SHORTCUT        Override a shortcut for this launch\n" \
   "  --copy-shortcut SHORTCUT\n" \
   "  --copy-without-closing-shortcut SHORTCUT\n" \
+  "  --save-shortcut SHORTCUT\n" \
   "  --save-and-close-shortcut SHORTCUT\n" \
   "  --save-copy-and-close-shortcut SHORTCUT\n" \
   "\n" \
@@ -135,6 +136,7 @@ static const struct {
   { "--close-window-shortcut", "close-window" },
   { "--copy-shortcut", "copy" },
   { "--copy-without-closing-shortcut", "copy-without-closing" },
+  { "--save-shortcut", "save" },
   { "--save-and-close-shortcut", "save-and-close" },
   { "--save-copy-and-close-shortcut", "save-copy-and-close" },
 };
