@@ -13,8 +13,43 @@
   background-color: transparent;
 }
 
-.canvas-empty {
-  padding: 48px;
+.home-actions {
+  padding: 6px;
+}
+
+.home-action {
+  min-height: 40px;
+  padding: 0 12px;
+  border-radius: 10px;
+  color: white;
+  font-weight: normal;
+  background: transparent;
+  background-color: transparent;
+  border-color: transparent;
+  box-shadow: none;
+}
+
+.home-action:hover {
+  background: alpha(white, 0.08);
+}
+
+.home-action:active {
+  background: alpha(white, 0.14);
+}
+
+.home-action image {
+  opacity: 0.85;
+}
+
+.home-hint {
+  color: alpha(white, 0.45);
+  font-size: 0.9em;
+}
+
+.home-actions separator {
+  min-height: 1px;
+  margin: 4px 8px;
+  background: alpha(white, 0.1);
 }
 
 .overlay-pill {
@@ -335,4 +370,61 @@
 .ocr-overlay-box label,
 .ocr-overlay-box image {
   color: transparent;
+}
+
+.open-group splitbutton > button,
+.open-group splitbutton > menubutton > button {
+  min-width: 32px;
+  min-height: 32px;
+  padding: 0;
+  border-radius: 10px;
+  color: white;
+  background: transparent;
+  background-color: transparent;
+  border-color: transparent;
+  box-shadow: none;
+}
+
+.open-group splitbutton > menubutton > button {
+  min-width: 22px;
+}
+
+.open-group splitbutton > button:hover,
+.open-group splitbutton > menubutton > button:hover {
+  background: alpha(white, 0.08);
+}
+
+.open-group splitbutton > separator {
+  background: transparent;
+}
+
+.capture-pill {
+  padding: 4px;
+}
+
+.capture-pill togglebutton.flat {
+  min-height: 32px;
+  padding: 0 12px;
+  border-radius: 10px;
+  color: white;
+  background: transparent;
+  background-color: transparent;
+  border-color: transparent;
+  box-shadow: none;
+}
+
+.capture-pill togglebutton.flat:hover {
+  background: alpha(white, 0.08);
+}
+
+.capture-pill togglebutton.flat:checked,
+.capture-pill togglebutton.flat:checked:hover {
+  background: alpha(white, 0.16);
+  background-color: alpha(white, 0.16);
+  background-image: none;
+}
+
+.capture-hint {
+  margin: 0 10px 0 4px;
+  color: alpha(white, 0.7);
 }

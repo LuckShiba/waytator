@@ -7,6 +7,10 @@ waytator_sources = files(
   'waytator-canvas-layout.c',
   'waytator-canvas-render.c',
   'waytator-canvas-state.c',
+  'waytator-capture.c',
+  'waytator-capture.h',
+  'waytator-capture-overlay.c',
+  'waytator-capture-overlay.h',
   'waytator-document.c',
   'waytator-document.h',
   'waytator-export.c',
@@ -15,6 +19,8 @@ waytator_sources = files(
   'waytator-ocr.h',
   'waytator-render.c',
   'waytator-render.h',
+  'waytator-screenshot.c',
+  'waytator-screenshot.h',
   'waytator-stroke.c',
   'waytator-stroke.h',
   'waytator-types.h',
@@ -40,7 +46,9 @@ executable(
   'waytator',
   waytator_sources,
   waytator_resources,
-  dependencies: [gtk_dep, adw_dep, m_dep],
+  wayland_protocol_sources,
+  #the layer shell has to be linked ahead of libwayland-client to hook into it
+  dependencies: [layer_shell_dep, gtk_dep, adw_dep, wayland_client_dep, m_dep],
   install: true,
 )
 

@@ -66,37 +66,122 @@
                     <property name="orientation">vertical</property>
                     <property name="valign">center</property>
                     <property name="halign">center</property>
-                    <property name="spacing">14</property>
+                    <property name="spacing">2</property>
+                    <property name="width-request">320</property>
                     <style>
-                      <class name="canvas-empty"/>
+                      <class name="overlay-pill"/>
+                      <class name="home-actions"/>
                     </style>
 
                     <child>
-                      <object class="GtkImage">
-                        <property name="icon-name">image-x-generic-symbolic</property>
-                        <property name="pixel-size">40</property>
+                      <object class="GtkButton">
+                        <property name="action-name">win.capture-area</property>
                         <style>
-                          <class name="dim-label"/>
+                          <class name="home-action"/>
                         </style>
-                      </object>
-                    </child>
+                        <property name="child">
+                          <object class="GtkBox">
+                            <property name="spacing">12</property>
 
-                    <child>
-                      <object class="GtkLabel">
-                        <property name="label">Open an image to begin</property>
-                        <style>
-                          <class name="title-3"/>
-                        </style>
+                            <child>
+                              <object class="GtkImage">
+                                <property name="icon-name">waytator-capture-area-symbolic</property>
+                              </object>
+                            </child>
+
+                            <child>
+                              <object class="GtkLabel">
+                                <property name="label">Capture area</property>
+                                <property name="xalign">0</property>
+                                <property name="hexpand">True</property>
+                              </object>
+                            </child>
+
+                            <child>
+                              <object class="GtkLabel" id="capture_area_hint">
+                                <style>
+                                  <class name="home-hint"/>
+                                </style>
+                              </object>
+                            </child>
+                          </object>
+                        </property>
                       </object>
                     </child>
 
                     <child>
                       <object class="GtkButton">
-                        <property name="label">Open image</property>
+                        <property name="action-name">win.capture-screen</property>
+                        <style>
+                          <class name="home-action"/>
+                        </style>
+                        <property name="child">
+                          <object class="GtkBox">
+                            <property name="spacing">12</property>
+
+                            <child>
+                              <object class="GtkImage">
+                                <property name="icon-name">waytator-capture-screen-symbolic</property>
+                              </object>
+                            </child>
+
+                            <child>
+                              <object class="GtkLabel">
+                                <property name="label">Capture screen</property>
+                                <property name="xalign">0</property>
+                                <property name="hexpand">True</property>
+                              </object>
+                            </child>
+
+                            <child>
+                              <object class="GtkLabel" id="capture_screen_hint">
+                                <style>
+                                  <class name="home-hint"/>
+                                </style>
+                              </object>
+                            </child>
+                          </object>
+                        </property>
+                      </object>
+                    </child>
+
+                    <child>
+                      <object class="GtkSeparator"/>
+                    </child>
+
+                    <child>
+                      <object class="GtkButton">
                         <property name="action-name">win.open</property>
                         <style>
-                          <class name="suggested-action"/>
+                          <class name="home-action"/>
                         </style>
+                        <property name="child">
+                          <object class="GtkBox">
+                            <property name="spacing">12</property>
+
+                            <child>
+                              <object class="GtkImage">
+                                <property name="icon-name">folder-open-symbolic</property>
+                              </object>
+                            </child>
+
+                            <child>
+                              <object class="GtkLabel">
+                                <property name="label">Open image</property>
+                                <property name="xalign">0</property>
+                                <property name="hexpand">True</property>
+                              </object>
+                            </child>
+
+                            <child>
+                              <object class="GtkLabel" id="open_hint">
+                                <style>
+                                  <class name="home-hint"/>
+                                </style>
+                              </object>
+                            </child>
+                          </object>
+                        </property>
                       </object>
                     </child>
                   </object>
@@ -222,6 +307,22 @@
                                 <style>
                                   <class name="overlay-button"/>
                                 </style>
+                              </object>
+                            </child>
+
+                            <child>
+                              <object class="GtkSeparator">
+                                <property name="orientation">vertical</property>
+                                <property name="margin-start">4</property>
+                                <property name="margin-end">4</property>
+                              </object>
+                            </child>
+
+                            <child>
+                              <object class="AdwSplitButton" id="capture_button">
+                                <property name="icon-name">camera-photo-symbolic</property>
+                                <property name="action-name">win.capture</property>
+                                <property name="dropdown-tooltip">Capture modes</property>
                               </object>
                             </child>
                           </object>
@@ -520,6 +621,15 @@
                               <class name="overlay-pill"/>
                               <class name="overlay-action-group"/>
                             </style>
+
+                            <child>
+                              <object class="GtkButton" id="save_as_button">
+                                <property name="tooltip-text">Save</property>
+                                <property name="icon-name">document-save-symbolic</property>
+                                <property name="sensitive">False</property>
+                                <property name="visible">False</property>
+                              </object>
+                            </child>
 
                             <child>
                           <object class="GtkMenuButton" id="save_button">

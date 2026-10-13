@@ -8,3 +8,12 @@ Icon=dev.faetalize.waytator
 Terminal=false
 Categories=Graphics;
 StartupNotify=true
+Actions=capture-area;capture-screen;
+
+[Desktop Action capture-area]
+Name=Capture Area
+Exec=waytator --screenshot area
+
+[Desktop Action capture-screen]
+Name=Capture Screen
+Exec=waytator --screenshot screen

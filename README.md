@@ -27,7 +27,7 @@ yay -S waytator
 
 1) Required build dependencies:
 
-`meson` - `ninja` - `pkg-config` - `gtk4` - `libadwaita-1` - `gcc`/`clang`/any C compiler
+`meson` - `ninja` - `pkg-config` - `gtk4` - `libadwaita-1` - `gtk4-layer-shell` - `wayland` - `wayland-protocols` - `gcc`/`clang`/any C compiler
 
 2) Required runtime dependency:
 
@@ -65,6 +65,23 @@ export PATH="$HOME/.local/bin:$PATH"
 If launchers fail to start `waytator` after installing from source, make sure your graphical session includes `~/.local/bin` in `PATH`, *not just your shell configuration*.
 
 ## Usage
+
+Take a screenshot and open it for editing:
+
+```bash
+waytator --screenshot          # drag to select an area
+waytator --screenshot screen   # a whole screen
+```
+
+The screen freezes while you choose, and `Esc` or a right click cancels. With more than one monitor, `--screenshot screen` lets you click the one you want, or takes it straight away with `--output DP-1`. The same captures are available inside the app, from the camera button next to Open.
+
+Add `--notify` to take the screenshot without opening the editor:
+
+```bash
+waytator --screenshot --notify
+```
+
+The screenshot is saved to `~/Pictures/Screenshots`, copied to the clipboard, and a notification offers to open or edit it. The folder and the clipboard copy can be changed or turned off in Preferences → Screenshots.
 
 Read from stdin automatically when image data is piped in:
 
@@ -112,9 +129,21 @@ Options that take a shortcut accept:
 
 Each tool has a key, shown in the corner of its button. `[` and `]` change the size, number keys pick a stroke color from a palette you can edit. All of them can be reassigned in Preferences → Shortcuts.
 
+### Compositor keybinds
+
+Bind a key to `waytator --screenshot` to capture and annotate in one step. For example with `niri`:
+
+```kdl
+// in your config.kdl, in the binds section
+Print { spawn "waytator" "--screenshot"; }
+Shift+Print { spawn "waytator" "--screenshot" "screen"; }
+// or save, copy and notify without opening the editor
+Ctrl+Print { spawn "waytator" "--screenshot" "--notify"; }
+```
+
 ### Niri users
 
-If you're on niri, just bind your screenshot keybind to `./scripts/screenshot-to-waytator.sh`, this will automatically open screenshots into `waytator` after they are captured for editing. Saving from niri's screenshot UI opens the saved file; pressing `Ctrl+C` in the screenshot UI opens the copied image directly from the clipboard. Clipboard captures use a timestamped name by default; override it with `WAYTATOR_SCREENSHOT_NAME`.
+If you would rather keep niri's own screenshot UI, bind your screenshot keybind to `./scripts/screenshot-to-waytator.sh` instead, this will automatically open screenshots into `waytator` after they are captured for editing. Saving from niri's screenshot UI opens the saved file; pressing `Ctrl+C` in the screenshot UI opens the copied image directly from the clipboard. Clipboard captures use a timestamped name by default; override it with `WAYTATOR_SCREENSHOT_NAME`.
 
 ```kdl
 // in your config.kdl, in the binds section

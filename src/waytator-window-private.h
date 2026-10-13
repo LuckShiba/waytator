@@ -35,6 +35,11 @@ struct _WaytatorWindow {
   GtkWindowControls *start_window_controls;
   GListModel *start_window_controls_children;
   GtkWidget *open_actions;
+  AdwSplitButton *capture_button;
+  GMenu *capture_menu;
+  GtkLabel *capture_area_hint;
+  GtkLabel *capture_screen_hint;
+  GtkLabel *open_hint;
   GtkWidget *file_group;
   GtkMenuButton *file_button;
   GtkLabel *file_label;
@@ -62,6 +67,7 @@ struct _WaytatorWindow {
   GtkButton *redo_button;
   GtkWidget *document_actions;
   GtkMenuButton *save_button;
+  GtkButton *save_as_button;
   GtkStack *save_icon_stack;
   GtkImage *save_default_icon;
   GtkImage *save_working_icon;
@@ -120,6 +126,16 @@ struct _WaytatorWindow {
   gboolean close_after_copy;
   gboolean close_copy_pending;
   gboolean save_in_progress;
+  gboolean never_saved;
+  gboolean from_capture;
+  GFile *adopt_file;
+  char *screenshot_save_dir;
+  gboolean screenshot_copy;
+  WaytatorCaptureMode capture_mode;
+  gboolean capture_in_progress;
+  gboolean capture_restore_window;
+  char *capture_output_name;
+  guint capture_delay_id;
   WaytatorAfterSave after_save;
   char *saved_path;
   guint ocr_generation;

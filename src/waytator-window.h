@@ -2,6 +2,8 @@
 
 #include <adwaita.h>
 
+#include "waytator-types.h"
+
 G_BEGIN_DECLS
 
 #define WAYTATOR_TYPE_WINDOW (waytator_window_get_type())
@@ -16,6 +18,13 @@ gboolean waytator_window_open_bytes(WaytatorWindow *self,
                                     GBytes         *bytes,
                                     const char     *display_name,
                                     GError        **error);
+void waytator_window_open_capture(WaytatorWindow *self,
+                                  GdkTexture     *texture,
+                                  const char     *display_name);
+gboolean waytator_window_is_empty(WaytatorWindow *self);
+void waytator_window_start_capture(WaytatorWindow     *self,
+                                   WaytatorCaptureMode mode,
+                                   const char         *output_name);
 gboolean waytator_window_shortcut_is_valid(const char *shortcut);
 void waytator_window_clear_overrides(WaytatorWindow *self);
 void waytator_window_set_close_on_copy_override(WaytatorWindow *self,
