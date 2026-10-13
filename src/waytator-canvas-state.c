@@ -53,6 +53,9 @@ waytator_window_update_size_controls(WaytatorWindow *self)
   gtk_adjustment_configure(precise_adjustment, precise_value, 1.0, 100.0, 1.0, 8.0, 0.0);
   gtk_spin_button_set_value(self->text_size_spin, text_value);
   gtk_spin_button_set_value(self->precise_size_spin, precise_value);
+  //the slider has to follow a size typed into the precise input too
+  if (!is_text_tool)
+    gtk_range_set_value(GTK_RANGE(self->width_scale), precise_value);
   gtk_label_set_text(self->size_button_label, label);
   self->updating_ui = FALSE;
 
