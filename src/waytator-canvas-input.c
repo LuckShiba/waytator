@@ -516,6 +516,12 @@ waytator_window_global_key_pressed(GtkEventControllerKey *controller,
         || !waytator_window_parse_shortcut_match(waytator_window_shortcut_accel(self, i), keyval, state))
       continue;
 
+    //the toolbar ones are mostly bare letters, keep them out of preferences and friends
+    if (i >= WAYTATOR_SHORTCUT_TOOL_FIRST
+        && focus != NULL
+        && gtk_widget_get_ancestor(focus, ADW_TYPE_DIALOG) != NULL)
+      return FALSE;
+
     waytator_window_activate_shortcut(self, i);
     return TRUE;
   }

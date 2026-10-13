@@ -108,6 +108,10 @@ Options that take a shortcut accept:
 - `none` to unassign
 - GTK Accelerator-like shortcut schemes also work :p
 
+### Tool shortcuts
+
+Each tool has a key, shown in the corner of its button. `[` and `]` change the size, number keys pick a stroke color from a palette you can edit. All of them can be reassigned in Preferences → Shortcuts.
+
 ### Niri users
 
 If you're on niri, just bind your screenshot keybind to `./scripts/screenshot-to-waytator.sh`, this will automatically open screenshots into `waytator` after they are captured for editing. Saving from niri's screenshot UI opens the saved file; pressing `Ctrl+C` in the screenshot UI opens the copied image directly from the clipboard. Clipboard captures use a timestamped name by default; override it with `WAYTATOR_SCREENSHOT_NAME`.

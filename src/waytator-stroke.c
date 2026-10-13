@@ -33,14 +33,14 @@ waytator_tool_width(WaytatorTool tool)
   case WAYTATOR_TOOL_CIRCLE:
   case WAYTATOR_TOOL_LINE:
   case WAYTATOR_TOOL_ARROW:
-    return 6.0;
+    return 8.0;
   case WAYTATOR_TOOL_BLUR:
     return 32.0;
   case WAYTATOR_TOOL_TEXT:
     return 24.0;
   case WAYTATOR_TOOL_BRUSH:
   default:
-    return 6.0;
+    return 8.0;
   }
 }
 

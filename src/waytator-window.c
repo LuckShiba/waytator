@@ -47,7 +47,6 @@ static void waytator_window_highlighter_overlap_changed(AdwSwitchRow   *row,
 static void waytator_window_update_window_controls(WaytatorWindow *self);
 static void waytator_window_update_window_background(WaytatorWindow *self);
 static void waytator_window_update_widget_appearance(WaytatorWindow *self);
-static void waytator_window_save_preferences(WaytatorWindow *self);
 
 static void
 waytator_window_apply_default_tool_colors(WaytatorWindow *self)
@@ -111,18 +110,61 @@ waytator_window_background_mode_label(WaytatorWindowBackgroundMode mode)
 #define WAYTATOR_SHORTCUT_NONE "none"
 #define WAYTATOR_SHORTCUT_RIGHT_CLICK "right-click"
 
+#define WAYTATOR_TOOL_SHORTCUT(tool) (WAYTATOR_SHORTCUT_TOOL_FIRST + (tool))
+#define WAYTATOR_COLOR_SHORTCUT(index) (WAYTATOR_SHORTCUT_COLOR_FIRST + (index))
+
+//name is what the command line calls it, action is NULL for the ones handled in waytator_window_activate_shortcut
 static const struct {
   const char *settings_key;
   const char *name;
   const char *title;
   const char *action;
+  const char *default_accel;
 } waytator_shortcuts[WAYTATOR_N_SHORTCUTS] = {
-  [WAYTATOR_SHORTCUT_CLOSE_WINDOW] = { "close_window_shortcut", "close-window", "Close window", "win.close-window" },
-  [WAYTATOR_SHORTCUT_COPY] = { "copy_shortcut", "copy", "Copy", "win.copy-buffer" },
-  [WAYTATOR_SHORTCUT_COPY_KEEP_OPEN] = { "copy_keep_open_shortcut", "copy-without-closing", "Copy without closing", "win.copy-keep-open" },
-  [WAYTATOR_SHORTCUT_SAVE] = { "save_shortcut", "save", "Save", "win.save-image" },
-  [WAYTATOR_SHORTCUT_SAVE_CLOSE] = { "save_close_shortcut", "save-and-close", "Save and close", "win.save-and-close" },
-  [WAYTATOR_SHORTCUT_SAVE_COPY_CLOSE] = { "save_copy_close_shortcut", "save-copy-and-close", "Save, copy and close", "win.save-copy-and-close" },
+  [WAYTATOR_SHORTCUT_CLOSE_WINDOW] = { "close_window_shortcut", "close-window", "Close window", "win.close-window", "Escape" },
+  [WAYTATOR_SHORTCUT_COPY] = { "copy_shortcut", "copy", "Copy", "win.copy-buffer", "<Primary>c" },
+  [WAYTATOR_SHORTCUT_COPY_KEEP_OPEN] = { "copy_keep_open_shortcut", "copy-without-closing", "Copy without closing", "win.copy-keep-open", "<Primary><Shift>c" },
+  [WAYTATOR_SHORTCUT_SAVE] = { "save_shortcut", "save", "Save", "win.save-image", "<Primary>s" },
+  [WAYTATOR_SHORTCUT_SAVE_CLOSE] = { "save_close_shortcut", "save-and-close", "Save and close", "win.save-and-close", "" },
+  [WAYTATOR_SHORTCUT_SAVE_COPY_CLOSE] = { "save_copy_close_shortcut", "save-copy-and-close", "Save, copy and close", "win.save-copy-and-close", "" },
+  [WAYTATOR_TOOL_SHORTCUT(WAYTATOR_TOOL_PAN)] = { "pan_tool_shortcut", NULL, "Pan", NULL, "p" },
+  [WAYTATOR_TOOL_SHORTCUT(WAYTATOR_TOOL_CROP)] = { "crop_tool_shortcut", NULL, "Crop", NULL, "c" },
+  [WAYTATOR_TOOL_SHORTCUT(WAYTATOR_TOOL_BRUSH)] = { "brush_tool_shortcut", NULL, "Brush", NULL, "b" },
+  [WAYTATOR_TOOL_SHORTCUT(WAYTATOR_TOOL_MARKER)] = { "highlighter_tool_shortcut", NULL, "Highlighter", NULL, "h" },
+  [WAYTATOR_TOOL_SHORTCUT(WAYTATOR_TOOL_ERASER)] = { "eraser_tool_shortcut", NULL, "Eraser", NULL, "e" },
+  [WAYTATOR_TOOL_SHORTCUT(WAYTATOR_TOOL_RECTANGLE)] = { "rectangle_tool_shortcut", NULL, "Rectangle", NULL, "r" },
+  [WAYTATOR_TOOL_SHORTCUT(WAYTATOR_TOOL_CIRCLE)] = { "circle_tool_shortcut", NULL, "Circle", NULL, "o" },
+  [WAYTATOR_TOOL_SHORTCUT(WAYTATOR_TOOL_LINE)] = { "line_tool_shortcut", NULL, "Line", NULL, "l" },
+  [WAYTATOR_TOOL_SHORTCUT(WAYTATOR_TOOL_ARROW)] = { "arrow_tool_shortcut", NULL, "Arrow", NULL, "a" },
+  [WAYTATOR_TOOL_SHORTCUT(WAYTATOR_TOOL_OCR)] = { "ocr_tool_shortcut", NULL, "Recognize text", NULL, "g" },
+  [WAYTATOR_TOOL_SHORTCUT(WAYTATOR_TOOL_TEXT)] = { "text_tool_shortcut", NULL, "Text", NULL, "t" },
+  [WAYTATOR_TOOL_SHORTCUT(WAYTATOR_TOOL_BLUR)] = { "blur_tool_shortcut", NULL, "Blur", NULL, "u" },
+  [WAYTATOR_SHORTCUT_SIZE_DECREASE] = { "size_decrease_shortcut", NULL, "Decrease size", NULL, "bracketleft" },
+  [WAYTATOR_SHORTCUT_SIZE_INCREASE] = { "size_increase_shortcut", NULL, "Increase size", NULL, "bracketright" },
+  [WAYTATOR_COLOR_SHORTCUT(0)] = { "color_1_shortcut", NULL, "Color 1", NULL, "1" },
+  [WAYTATOR_COLOR_SHORTCUT(1)] = { "color_2_shortcut", NULL, "Color 2", NULL, "2" },
+  [WAYTATOR_COLOR_SHORTCUT(2)] = { "color_3_shortcut", NULL, "Color 3", NULL, "3" },
+  [WAYTATOR_COLOR_SHORTCUT(3)] = { "color_4_shortcut", NULL, "Color 4", NULL, "4" },
+  [WAYTATOR_COLOR_SHORTCUT(4)] = { "color_5_shortcut", NULL, "Color 5", NULL, "5" },
+  [WAYTATOR_COLOR_SHORTCUT(5)] = { "color_6_shortcut", NULL, "Color 6", NULL, "6" },
+  [WAYTATOR_COLOR_SHORTCUT(6)] = { "color_7_shortcut", NULL, "Color 7", NULL, "7" },
+  [WAYTATOR_COLOR_SHORTCUT(7)] = { "color_8_shortcut", NULL, "Color 8", NULL, "8" },
+  [WAYTATOR_COLOR_SHORTCUT(8)] = { "color_9_shortcut", NULL, "Color 9", NULL, "9" },
+};
+
+#define WAYTATOR_DEFAULT_N_PALETTE_COLORS 3
+
+//the first few are what a new palette starts with, the rest is what "add" hands out next
+static const GdkRGBA waytator_default_palette[WAYTATOR_MAX_PALETTE_COLORS] = {
+  { 0.96, 0.2, 0.28, 1.0 },
+  { 0.2, 0.78, 0.35, 1.0 },
+  { 0.2, 0.52, 0.96, 1.0 },
+  { 1.0, 0.91, 0.2, 1.0 },
+  { 1.0, 0.55, 0.1, 1.0 },
+  { 0.62, 0.36, 0.9, 1.0 },
+  { 0.0, 0.0, 0.0, 1.0 },
+  { 1.0, 1.0, 1.0, 1.0 },
+  { 1.0, 0.45, 0.7, 1.0 },
 };
 
 static char *
@@ -310,23 +352,93 @@ waytator_window_shortcut_accel(WaytatorWindow  *self,
        : self->shortcut_accels[shortcut];
 }
 
+const char *
+waytator_window_shortcut_title(WaytatorShortcut shortcut)
+{
+  return waytator_shortcuts[shortcut].title;
+}
+
+//color slots past the end of the palette keep their key but do nothing
+static gboolean
+waytator_window_shortcut_exists(WaytatorWindow  *self,
+                                WaytatorShortcut shortcut)
+{
+  return shortcut < WAYTATOR_SHORTCUT_COLOR_FIRST
+      || shortcut - WAYTATOR_SHORTCUT_COLOR_FIRST < self->n_palette_colors;
+}
+
 gboolean
 waytator_window_shortcut_is_active(WaytatorWindow  *self,
                                    WaytatorShortcut shortcut)
 {
   const char *accelerator = waytator_window_shortcut_accel(self, shortcut);
 
-  if (accelerator == NULL || *accelerator == '\0')
+  if (accelerator == NULL || *accelerator == '\0' || !waytator_window_shortcut_exists(self, shortcut))
     return FALSE;
 
+  //the toolbar ones need an image, and stay out of the way of a stroke in progress
+  if (shortcut >= WAYTATOR_SHORTCUT_TOOL_FIRST)
+    return self->texture != NULL && !self->drawing;
+
   return shortcut != WAYTATOR_SHORTCUT_COPY_KEEP_OPEN || waytator_window_closes_on_copy(self);
+}
+
+static gboolean
+waytator_window_accelerators_equal(const char *first,
+                                   const char *second)
+{
+  guint first_keyval;
+  guint second_keyval;
+  GdkModifierType first_modifiers;
+  GdkModifierType second_modifiers;
+
+  if (g_strcmp0(first, WAYTATOR_SHORTCUT_RIGHT_CLICK) == 0
+      || g_strcmp0(second, WAYTATOR_SHORTCUT_RIGHT_CLICK) == 0)
+    return g_strcmp0(first, second) == 0;
+
+  return waytator_window_parse_accelerator(first, &first_keyval, &first_modifiers)
+      && waytator_window_parse_accelerator(second, &second_keyval, &second_modifiers)
+      && first_keyval == second_keyval
+      && first_modifiers == second_modifiers;
+}
+
+//the earlier shortcut holding the same key, or -1
+int
+waytator_window_shortcut_conflict(WaytatorWindow  *self,
+                                  WaytatorShortcut shortcut,
+                                  gboolean         with_overrides)
+{
+  const char *accelerator = with_overrides
+                          ? waytator_window_shortcut_accel(self, shortcut)
+                          : self->shortcut_accels[shortcut];
+
+  for (int i = 0; i < (int) shortcut; i++) {
+    const char *other = with_overrides
+                      ? waytator_window_shortcut_accel(self, i)
+                      : self->shortcut_accels[i];
+
+    if (waytator_window_shortcut_exists(self, i)
+        && waytator_window_accelerators_equal(accelerator, other))
+      return i;
+  }
+
+  return -1;
 }
 
 void
 waytator_window_activate_shortcut(WaytatorWindow  *self,
                                   WaytatorShortcut shortcut)
 {
-  gtk_widget_activate_action(GTK_WIDGET(self), waytator_shortcuts[shortcut].action, NULL);
+  if (shortcut >= WAYTATOR_SHORTCUT_TOOL_FIRST && shortcut <= WAYTATOR_SHORTCUT_TOOL_LAST)
+    waytator_window_select_tool(self, shortcut - WAYTATOR_SHORTCUT_TOOL_FIRST);
+  else if (shortcut == WAYTATOR_SHORTCUT_SIZE_DECREASE)
+    waytator_window_step_tool_size(self, -1);
+  else if (shortcut == WAYTATOR_SHORTCUT_SIZE_INCREASE)
+    waytator_window_step_tool_size(self, 1);
+  else if (shortcut >= WAYTATOR_SHORTCUT_COLOR_FIRST && shortcut <= WAYTATOR_SHORTCUT_COLOR_LAST)
+    waytator_window_apply_palette_color(self, shortcut - WAYTATOR_SHORTCUT_COLOR_FIRST);
+  else
+    gtk_widget_activate_action(GTK_WIDGET(self), waytator_shortcuts[shortcut].action, NULL);
 }
 
 static gboolean
@@ -344,6 +456,7 @@ waytator_window_clear_overrides(WaytatorWindow *self)
   for (int i = 0; i < WAYTATOR_N_SHORTCUTS; i++)
     g_clear_pointer(&self->shortcut_overrides[i], g_free);
   waytator_window_update_copy_controls(self);
+  waytator_window_update_tool_shortcut_hints(self);
 }
 
 void
@@ -370,6 +483,7 @@ waytator_window_set_shortcut_override(WaytatorWindow *self,
 
     g_free(self->shortcut_overrides[i]);
     self->shortcut_overrides[i] = g_steal_pointer(&normalized);
+    waytator_window_update_tool_shortcut_hints(self);
     return TRUE;
   }
 
@@ -389,6 +503,15 @@ waytator_window_update_shortcut_label(GtkShortcutLabel *label,
   gtk_shortcut_label_set_disabled_text(label, "None");
   gtk_shortcut_label_set_accelerator(label,
                                      accelerator != NULL ? accelerator : "");
+
+  //drop the "+" it puts between keys, the keycaps read fine without it
+  if (accelerator == NULL || *accelerator == '\0')
+    return;
+
+  for (GtkWidget *child = gtk_widget_get_first_child(GTK_WIDGET(label));
+       child != NULL;
+       child = gtk_widget_get_next_sibling(child))
+    gtk_widget_set_visible(child, gtk_widget_has_css_class(child, "keycap"));
 }
 
 static const char *
@@ -493,6 +616,12 @@ waytator_window_load_preferences(WaytatorWindow *self)
                                                  "close_on_copy",
                                                  NULL);
 
+  if (g_key_file_has_key(key_file, WAYTATOR_SETTINGS_GROUP, "size_slider_visible", NULL))
+    self->size_drawer_open = g_key_file_get_boolean(key_file,
+                                                    WAYTATOR_SETTINGS_GROUP,
+                                                    "size_slider_visible",
+                                                    NULL);
+
   if (g_key_file_has_key(key_file, WAYTATOR_SETTINGS_GROUP, "allow_highlighter_overlap", NULL))
     self->allow_highlighter_overlap = g_key_file_get_boolean(key_file,
                                                              WAYTATOR_SETTINGS_GROUP,
@@ -553,9 +682,24 @@ waytator_window_load_preferences(WaytatorWindow *self)
   waytator_window_load_rgba_preference(key_file,
                                        "default_fill_color",
                                        &self->default_fill_color);
+
+  if (g_key_file_has_key(key_file, WAYTATOR_SETTINGS_GROUP, "palette_colors", NULL)) {
+    g_auto(GStrv) colors = g_key_file_get_string_list(key_file,
+                                                      WAYTATOR_SETTINGS_GROUP,
+                                                      "palette_colors",
+                                                      NULL,
+                                                      NULL);
+
+    self->n_palette_colors = 0;
+    for (guint i = 0; colors != NULL && colors[i] != NULL; i++) {
+      if (self->n_palette_colors < WAYTATOR_MAX_PALETTE_COLORS
+          && gdk_rgba_parse(&self->palette_colors[self->n_palette_colors], colors[i]))
+        self->n_palette_colors++;
+    }
+  }
 }
 
-static void
+void
 waytator_window_save_preferences(WaytatorWindow *self)
 {
   g_autofree char *path = waytator_window_preferences_path();
@@ -600,6 +744,10 @@ waytator_window_save_preferences(WaytatorWindow *self)
                          WAYTATOR_SETTINGS_GROUP,
                          "close_on_copy",
                          self->close_on_copy);
+  g_key_file_set_boolean(key_file,
+                         WAYTATOR_SETTINGS_GROUP,
+                         "size_slider_visible",
+                         self->size_drawer_open);
   for (int i = 0; i < WAYTATOR_N_SHORTCUTS; i++)
     g_key_file_set_string(key_file,
                           WAYTATOR_SETTINGS_GROUP,
@@ -621,6 +769,21 @@ waytator_window_save_preferences(WaytatorWindow *self)
                         WAYTATOR_SETTINGS_GROUP,
                         "default_fill_color",
                         default_fill_color);
+
+  {
+    g_autoptr(GStrvBuilder) colors = g_strv_builder_new();
+    g_auto(GStrv) color_list = NULL;
+
+    for (guint i = 0; i < self->n_palette_colors; i++)
+      g_strv_builder_take(colors, gdk_rgba_to_string(&self->palette_colors[i]));
+
+    color_list = g_strv_builder_end(colors);
+    g_key_file_set_string_list(key_file,
+                               WAYTATOR_SETTINGS_GROUP,
+                               "palette_colors",
+                               (const char * const *) color_list,
+                               self->n_palette_colors);
+  }
 
   if (g_mkdir_with_parents(directory, 0700) != 0) {
     g_warning("Failed to create preferences directory %s", directory);
@@ -862,6 +1025,28 @@ waytator_window_default_fill_color_changed(GObject    *object,
 }
 
 static void
+waytator_window_update_shortcut_conflicts(WaytatorWindow *self)
+{
+  for (int i = 0; i < WAYTATOR_N_SHORTCUTS; i++) {
+    const int conflict = waytator_window_shortcut_conflict(self, i, FALSE);
+    g_autofree char *subtitle = NULL;
+
+    if (self->shortcut_rows[i] == NULL)
+      continue;
+
+    if (conflict >= 0) {
+      subtitle = g_strdup_printf("Already used by %s, which takes priority",
+                                 waytator_shortcuts[conflict].title);
+      gtk_widget_add_css_class(GTK_WIDGET(self->shortcut_rows[i]), "warning");
+    } else {
+      gtk_widget_remove_css_class(GTK_WIDGET(self->shortcut_rows[i]), "warning");
+    }
+
+    adw_action_row_set_subtitle(self->shortcut_rows[i], subtitle != NULL ? subtitle : "");
+  }
+}
+
+static void
 waytator_window_end_shortcut_capture(GtkWidget *button)
 {
   GtkWidget *shortcut_label = g_object_get_data(G_OBJECT(button), "shortcut-label");
@@ -905,6 +1090,8 @@ waytator_window_finish_shortcut_capture(GtkWidget  *button,
   waytator_window_apply_shortcut(self, shortcut, accelerator);
   waytator_window_update_shortcut_label(shortcut_label, self->shortcut_accels[shortcut]);
   gtk_widget_set_visible(clear_button, *self->shortcut_accels[shortcut] != '\0');
+  waytator_window_update_shortcut_conflicts(self);
+  waytator_window_update_tool_shortcut_hints(self);
   waytator_window_save_preferences(self);
   waytator_window_end_shortcut_capture(button);
 }
@@ -1016,6 +1203,7 @@ waytator_window_new_shortcut_row(WaytatorWindow  *self,
   adw_action_row_add_suffix(row, button);
   adw_action_row_add_suffix(row, clear_button);
 
+  g_set_weak_pointer(&self->shortcut_rows[shortcut], row);
   g_object_set_data(G_OBJECT(button), "window", self);
   g_object_set_data(G_OBJECT(button), "shortcut-label", shortcut_label);
   g_object_set_data(G_OBJECT(button), "shortcut-id", GINT_TO_POINTER(shortcut));
@@ -1042,6 +1230,124 @@ waytator_window_new_shortcut_row(WaytatorWindow  *self,
                    button);
 
   return row;
+}
+
+static void waytator_window_rebuild_palette_rows(WaytatorWindow *self);
+
+static void
+waytator_window_palette_color_changed(GObject    *object,
+                                      GParamSpec *pspec,
+                                      gpointer    user_data)
+{
+  WaytatorWindow *self = WAYTATOR_WINDOW(user_data);
+  const guint index = GPOINTER_TO_UINT(g_object_get_data(object, "palette-index"));
+  const GdkRGBA *rgba = gtk_color_dialog_button_get_rgba(GTK_COLOR_DIALOG_BUTTON(object));
+
+  (void) pspec;
+
+  if (rgba == NULL || index >= self->n_palette_colors)
+    return;
+
+  self->palette_colors[index] = *rgba;
+  waytator_window_save_preferences(self);
+}
+
+static void
+waytator_window_palette_remove_clicked(GtkButton *button,
+                                       gpointer   user_data)
+{
+  WaytatorWindow *self = WAYTATOR_WINDOW(user_data);
+  const guint index = GPOINTER_TO_UINT(g_object_get_data(G_OBJECT(button), "palette-index"));
+
+  if (index >= self->n_palette_colors)
+    return;
+
+  //the keys stay with their position, only the colors move up
+  for (guint i = index; i + 1 < self->n_palette_colors; i++)
+    self->palette_colors[i] = self->palette_colors[i + 1];
+  self->n_palette_colors--;
+
+  waytator_window_rebuild_palette_rows(self);
+  waytator_window_save_preferences(self);
+}
+
+static void
+waytator_window_palette_add_clicked(GtkButton *button,
+                                    gpointer   user_data)
+{
+  WaytatorWindow *self = WAYTATOR_WINDOW(user_data);
+
+  (void) button;
+
+  if (self->n_palette_colors >= WAYTATOR_MAX_PALETTE_COLORS)
+    return;
+
+  self->palette_colors[self->n_palette_colors] = waytator_default_palette[self->n_palette_colors];
+  self->n_palette_colors++;
+
+  waytator_window_rebuild_palette_rows(self);
+  waytator_window_save_preferences(self);
+}
+
+static void
+waytator_window_rebuild_palette_rows(WaytatorWindow *self)
+{
+  if (self->palette_group == NULL)
+    return;
+
+  for (int i = WAYTATOR_SHORTCUT_COLOR_FIRST; i <= WAYTATOR_SHORTCUT_COLOR_LAST; i++) {
+    if (self->shortcut_rows[i] != NULL)
+      adw_preferences_group_remove(self->palette_group, GTK_WIDGET(self->shortcut_rows[i]));
+  }
+
+  for (guint i = 0; i < self->n_palette_colors; i++) {
+    AdwActionRow *row = waytator_window_new_shortcut_row(self, WAYTATOR_COLOR_SHORTCUT(i));
+    //the button takes over the dialog
+    GtkWidget *color_button = gtk_color_dialog_button_new(gtk_color_dialog_new());
+    GtkWidget *remove_button = gtk_button_new_from_icon_name("user-trash-symbolic");
+
+    gtk_color_dialog_button_set_rgba(GTK_COLOR_DIALOG_BUTTON(color_button), &self->palette_colors[i]);
+    gtk_widget_set_valign(color_button, GTK_ALIGN_CENTER);
+    gtk_widget_set_tooltip_text(color_button, "Change color");
+    gtk_button_set_has_frame(GTK_BUTTON(remove_button), FALSE);
+    gtk_widget_set_valign(remove_button, GTK_ALIGN_CENTER);
+    gtk_widget_set_tooltip_text(remove_button, "Remove color");
+    g_object_set_data(G_OBJECT(color_button), "palette-index", GUINT_TO_POINTER(i));
+    g_object_set_data(G_OBJECT(remove_button), "palette-index", GUINT_TO_POINTER(i));
+    adw_action_row_add_prefix(row, color_button);
+    adw_action_row_add_suffix(row, remove_button);
+    g_signal_connect(color_button,
+                     "notify::rgba",
+                     G_CALLBACK(waytator_window_palette_color_changed),
+                     self);
+    g_signal_connect(remove_button,
+                     "clicked",
+                     G_CALLBACK(waytator_window_palette_remove_clicked),
+                     self);
+    adw_preferences_group_add(self->palette_group, GTK_WIDGET(row));
+  }
+
+  if (self->palette_add_button != NULL)
+    gtk_widget_set_sensitive(self->palette_add_button,
+                             self->n_palette_colors < WAYTATOR_MAX_PALETTE_COLORS);
+  waytator_window_update_shortcut_conflicts(self);
+}
+
+static void
+waytator_window_setup_palette_group(WaytatorWindow      *self,
+                                    AdwPreferencesGroup *group)
+{
+  GtkWidget *add_button = gtk_button_new_from_icon_name("list-add-symbolic");
+
+  gtk_button_set_has_frame(GTK_BUTTON(add_button), FALSE);
+  gtk_widget_set_valign(add_button, GTK_ALIGN_CENTER);
+  gtk_widget_set_tooltip_text(add_button, "Add color");
+  adw_preferences_group_set_header_suffix(group, add_button);
+  g_signal_connect(add_button, "clicked", G_CALLBACK(waytator_window_palette_add_clicked), self);
+
+  g_set_weak_pointer(&self->palette_group, group);
+  g_set_weak_pointer(&self->palette_add_button, add_button);
+  waytator_window_rebuild_palette_rows(self);
 }
 
 static void
@@ -1107,9 +1413,12 @@ waytator_window_show_preferences(WaytatorWindow *self)
 {
   AdwPreferencesDialog *dialog;
   AdwPreferencesPage *page;
+  AdwPreferencesPage *shortcuts_page;
   AdwPreferencesGroup *group;
   AdwPreferencesGroup *appearance_group;
   AdwPreferencesGroup *shortcuts_group;
+  AdwPreferencesGroup *tool_shortcuts_group;
+  AdwPreferencesGroup *color_shortcuts_group;
   AdwComboRow *row;
   AdwComboRow *background_mode_row;
   AdwSwitchRow *floating_controls_blur_row;
@@ -1146,7 +1455,10 @@ waytator_window_show_preferences(WaytatorWindow *self)
   page = ADW_PREFERENCES_PAGE(adw_preferences_page_new());
   group = ADW_PREFERENCES_GROUP(adw_preferences_group_new());
   appearance_group = ADW_PREFERENCES_GROUP(adw_preferences_group_new());
+  shortcuts_page = ADW_PREFERENCES_PAGE(adw_preferences_page_new());
   shortcuts_group = ADW_PREFERENCES_GROUP(adw_preferences_group_new());
+  tool_shortcuts_group = ADW_PREFERENCES_GROUP(adw_preferences_group_new());
+  color_shortcuts_group = ADW_PREFERENCES_GROUP(adw_preferences_group_new());
   row = ADW_COMBO_ROW(adw_combo_row_new());
   background_mode_row = ADW_COMBO_ROW(adw_combo_row_new());
   floating_controls_blur_row = ADW_SWITCH_ROW(adw_switch_row_new());
@@ -1198,9 +1510,14 @@ waytator_window_show_preferences(WaytatorWindow *self)
   });
 
   adw_preferences_page_set_title(page, "General");
+  adw_preferences_page_set_icon_name(page, "preferences-system-symbolic");
+  adw_preferences_page_set_title(shortcuts_page, "Shortcuts");
+  adw_preferences_page_set_icon_name(shortcuts_page, "preferences-desktop-keyboard-shortcuts-symbolic");
   adw_preferences_group_set_title(group, "General");
   adw_preferences_group_set_title(appearance_group, "Appearance");
-  adw_preferences_group_set_title(shortcuts_group, "Shortcuts");
+  adw_preferences_group_set_title(shortcuts_group, "Actions");
+  adw_preferences_group_set_title(tool_shortcuts_group, "Tools");
+  adw_preferences_group_set_title(color_shortcuts_group, "Stroke color");
   adw_preferences_row_set_title(ADW_PREFERENCES_ROW(row), "Eraser Styling");
   adw_combo_row_set_model(row, G_LIST_MODEL(model));
   adw_combo_row_set_selected(row, self->eraser_style);
@@ -1297,8 +1614,16 @@ waytator_window_show_preferences(WaytatorWindow *self)
   adw_preferences_group_add(shortcuts_group, GTK_WIDGET(angle_snap_modifier_row));
   adw_preferences_page_add(page, group);
   adw_preferences_page_add(page, appearance_group);
-  adw_preferences_page_add(page, shortcuts_group);
+  for (int i = WAYTATOR_SHORTCUT_TOOL_FIRST; i <= WAYTATOR_SHORTCUT_SIZE_INCREASE; i++)
+    adw_preferences_group_add(tool_shortcuts_group,
+                              GTK_WIDGET(waytator_window_new_shortcut_row(self, i)));
+  waytator_window_setup_palette_group(self, color_shortcuts_group);
+  adw_preferences_page_add(shortcuts_page, shortcuts_group);
+  adw_preferences_page_add(shortcuts_page, tool_shortcuts_group);
+  adw_preferences_page_add(shortcuts_page, color_shortcuts_group);
+  waytator_window_update_shortcut_conflicts(self);
   adw_preferences_dialog_add(dialog, page);
+  adw_preferences_dialog_add(dialog, shortcuts_page);
   adw_dialog_set_title(ADW_DIALOG(dialog), "Preferences");
   adw_preferences_dialog_set_search_enabled(dialog, FALSE);
   adw_dialog_set_content_width(ADW_DIALOG(dialog), 420);
@@ -3151,7 +3476,11 @@ waytator_window_dispose(GObject *object)
   for (int i = 0; i < WAYTATOR_N_SHORTCUTS; i++) {
     g_clear_pointer(&self->shortcut_accels[i], g_free);
     g_clear_pointer(&self->shortcut_overrides[i], g_free);
+    g_clear_weak_pointer(&self->shortcut_rows[i]);
   }
+  g_clear_weak_pointer(&self->palette_group);
+  g_clear_weak_pointer(&self->size_focus_before);
+  g_clear_weak_pointer(&self->palette_add_button);
   g_clear_pointer(&self->saved_path, g_free);
   g_clear_pointer(&self->active_touch_sequences, g_hash_table_unref);
   g_clear_pointer(&self->touch_tap_points, g_hash_table_unref);
@@ -3228,10 +3557,15 @@ waytator_window_bind_template_children(GtkWidgetClass *widget_class)
   gtk_widget_class_bind_template_child(widget_class, WaytatorWindow, color_button);
   gtk_widget_class_bind_template_child(widget_class, WaytatorWindow, fill_color_button);
   gtk_widget_class_bind_template_child(widget_class, WaytatorWindow, width_scale);
-  gtk_widget_class_bind_template_child(widget_class, WaytatorWindow, size_button);
-  gtk_widget_class_bind_template_child(widget_class, WaytatorWindow, size_button_label);
+  gtk_widget_class_bind_template_child(widget_class, WaytatorWindow, size_drawer);
+  gtk_widget_class_bind_template_child(widget_class, WaytatorWindow, size_presets);
+  gtk_widget_class_bind_template_child(widget_class, WaytatorWindow, size_readout);
+  gtk_widget_class_bind_template_child(widget_class, WaytatorWindow, size_value_box);
+  gtk_widget_class_bind_template_child(widget_class, WaytatorWindow, size_value_stack);
+  gtk_widget_class_bind_template_child(widget_class, WaytatorWindow, size_value_label);
+  gtk_widget_class_bind_template_child(widget_class, WaytatorWindow, size_value_entry);
+  gtk_widget_class_bind_template_child(widget_class, WaytatorWindow, size_drawer_button);
   gtk_widget_class_bind_template_child(widget_class, WaytatorWindow, text_size_spin);
-  gtk_widget_class_bind_template_child(widget_class, WaytatorWindow, precise_size_spin);
   gtk_widget_class_bind_template_child(widget_class, WaytatorWindow, blur_type_dropdown);
 }
 
@@ -3286,12 +3620,11 @@ waytator_window_init_state(WaytatorWindow *self)
   self->default_fill_color = (GdkRGBA){0.96, 0.2, 0.28, 0.0};
   self->close_on_copy = FALSE;
   self->close_on_copy_override = -1;
-  waytator_window_apply_shortcut(self, WAYTATOR_SHORTCUT_CLOSE_WINDOW, "Escape");
-  waytator_window_apply_shortcut(self, WAYTATOR_SHORTCUT_COPY, "<Primary>c");
-  waytator_window_apply_shortcut(self, WAYTATOR_SHORTCUT_COPY_KEEP_OPEN, "<Primary><Shift>c");
-  waytator_window_apply_shortcut(self, WAYTATOR_SHORTCUT_SAVE, "<Primary>s");
-  waytator_window_apply_shortcut(self, WAYTATOR_SHORTCUT_SAVE_CLOSE, "");
-  waytator_window_apply_shortcut(self, WAYTATOR_SHORTCUT_SAVE_COPY_CLOSE, "");
+  self->n_palette_colors = WAYTATOR_DEFAULT_N_PALETTE_COLORS;
+  for (guint i = 0; i < self->n_palette_colors; i++)
+    self->palette_colors[i] = waytator_default_palette[i];
+  for (int i = 0; i < WAYTATOR_N_SHORTCUTS; i++)
+    waytator_window_apply_shortcut(self, i, waytator_shortcuts[i].default_accel);
   waytator_window_load_preferences(self);
 
   for (int i = 0; i <= WAYTATOR_TOOL_BLUR; i++)
@@ -3420,9 +3753,6 @@ waytator_window_setup_popovers(WaytatorWindow *self)
   waytator_window_setup_menu_button_popover(self->file_button,
                                             GTK_ARROW_UP,
                                             GTK_POS_TOP);
-  waytator_window_setup_menu_button_popover(self->size_button,
-                                            GTK_ARROW_UP,
-                                            GTK_POS_TOP);
 }
 
 static void
@@ -3456,6 +3786,7 @@ waytator_window_init(WaytatorWindow *self)
   waytator_window_setup_ocr_panel(self);
   waytator_window_setup_window_controls(self);
   waytator_window_setup_popovers(self);
+  waytator_window_setup_tool_shortcut_hints(self);
   waytator_window_setup_controllers(self);
   waytator_window_setup_signals(self);
   g_signal_connect(self->copy_button, "clicked", G_CALLBACK(waytator_window_copy_clicked), self);

@@ -59,10 +59,6 @@
   background: alpha(white, 0.08);
 }
 
-.settings-group menubutton.size-button > button {
-  padding: 0 6px;
-}
-
 .overlay-readout {
   padding: 4px;
 }
@@ -173,16 +169,67 @@
   -gtk-icon-size: 16px;
 }
 
+.tool-shortcut-hint {
+  margin: 0 -3px -4px 0;
+  font-size: 8px;
+  font-weight: 700;
+  color: alpha(currentColor, 0.6);
+}
+
 .zoom-label {
   color: white;
   font-weight: 600;
   margin: 0 4px;
 }
 
-.size-button label {
+.size-presets button,
+.size-readout > button {
+  min-width: 32px;
+  min-height: 32px;
+  padding: 0;
+  border-radius: 10px;
+  color: alpha(white, 0.7);
+  background: transparent;
+  border-color: transparent;
+  box-shadow: none;
+}
+
+.size-readout > button {
+  min-width: 28px;
+}
+
+/* the chevron points at where the slider is: up to open it, down to put it away */
+.size-readout > button image {
+  transition: -gtk-icon-transform 180ms ease;
+}
+
+.size-readout > button:checked image {
+  -gtk-icon-transform: rotate(180deg);
+}
+
+.size-presets button:hover,
+.size-readout > button:hover,
+.size-value:hover {
+  background: alpha(white, 0.08);
+}
+
+.size-presets button.selected-size,
+.size-readout > button:checked {
+  color: white;
+  background: alpha(white, 0.16);
+}
+
+.size-value {
+  min-height: 32px;
+  padding: 0 6px;
+  border-radius: 10px;
   color: white;
   font-weight: 600;
-  margin: 0 4px;
+  font-feature-settings: "tnum";
+}
+
+.size-unit {
+  opacity: 0.55;
 }
 
 .overlay-window-controls {
