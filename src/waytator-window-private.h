@@ -79,11 +79,18 @@ struct _WaytatorWindow {
   GtkWidget *settings_group;
   GtkColorDialogButton *color_button;
   GtkColorDialogButton *fill_color_button;
+  GtkRevealer *size_drawer;
   GtkScale *width_scale;
-  GtkMenuButton *size_button;
-  GtkLabel *size_button_label;
+  GtkWidget *size_presets;
+  GtkWidget *size_preset_buttons[WAYTATOR_N_SIZE_PRESETS];
+  GtkWidget *size_readout;
+  GtkWidget *size_value_box;
+  GtkStack *size_value_stack;
+  GtkLabel *size_value_label;
+  GtkText *size_value_entry;
+  GtkToggleButton *size_drawer_button;
+  GtkWidget *size_focus_before;
   GtkSpinButton *text_size_spin;
-  GtkSpinButton *precise_size_spin;
   GtkDropDown *blur_type_dropdown;
   GtkCssProvider *window_css_provider;
   GtkCssProvider *widget_css_provider;
@@ -136,6 +143,10 @@ struct _WaytatorWindow {
   gboolean pointer_in;
   WaytatorWindowBackgroundMode window_background_mode;
   gboolean updating_ui;
+  gboolean size_drawer_open;
+  gboolean size_editing;
+  gboolean size_scrubbing;
+  double size_scrub_start;
   gboolean interaction_has_undo_step;
   gboolean blur_commit_warning_accepted;
   gboolean blur_commit_warning_showing;
@@ -238,6 +249,7 @@ void waytator_window_set_zoom_at(WaytatorWindow *self,
                                  double          viewport_x,
                                  double          viewport_y);
 void waytator_window_update_size_controls(WaytatorWindow *self);
+void waytator_window_save_preferences(WaytatorWindow *self);
 void waytator_window_update_tool_ui(WaytatorWindow *self);
 void waytator_window_queue_fit_zoom(WaytatorWindow *self);
 void waytator_window_sync_state(WaytatorWindow *self);

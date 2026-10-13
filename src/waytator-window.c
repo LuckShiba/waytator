@@ -47,7 +47,6 @@ static void waytator_window_highlighter_overlap_changed(AdwSwitchRow   *row,
 static void waytator_window_update_window_controls(WaytatorWindow *self);
 static void waytator_window_update_window_background(WaytatorWindow *self);
 static void waytator_window_update_widget_appearance(WaytatorWindow *self);
-static void waytator_window_save_preferences(WaytatorWindow *self);
 
 static void
 waytator_window_apply_default_tool_colors(WaytatorWindow *self)
@@ -617,6 +616,12 @@ waytator_window_load_preferences(WaytatorWindow *self)
                                                  "close_on_copy",
                                                  NULL);
 
+  if (g_key_file_has_key(key_file, WAYTATOR_SETTINGS_GROUP, "size_slider_visible", NULL))
+    self->size_drawer_open = g_key_file_get_boolean(key_file,
+                                                    WAYTATOR_SETTINGS_GROUP,
+                                                    "size_slider_visible",
+                                                    NULL);
+
   if (g_key_file_has_key(key_file, WAYTATOR_SETTINGS_GROUP, "allow_highlighter_overlap", NULL))
     self->allow_highlighter_overlap = g_key_file_get_boolean(key_file,
                                                              WAYTATOR_SETTINGS_GROUP,
@@ -694,7 +699,7 @@ waytator_window_load_preferences(WaytatorWindow *self)
   }
 }
 
-static void
+void
 waytator_window_save_preferences(WaytatorWindow *self)
 {
   g_autofree char *path = waytator_window_preferences_path();
@@ -739,6 +744,10 @@ waytator_window_save_preferences(WaytatorWindow *self)
                          WAYTATOR_SETTINGS_GROUP,
                          "close_on_copy",
                          self->close_on_copy);
+  g_key_file_set_boolean(key_file,
+                         WAYTATOR_SETTINGS_GROUP,
+                         "size_slider_visible",
+                         self->size_drawer_open);
   for (int i = 0; i < WAYTATOR_N_SHORTCUTS; i++)
     g_key_file_set_string(key_file,
                           WAYTATOR_SETTINGS_GROUP,
@@ -3470,6 +3479,7 @@ waytator_window_dispose(GObject *object)
     g_clear_weak_pointer(&self->shortcut_rows[i]);
   }
   g_clear_weak_pointer(&self->palette_group);
+  g_clear_weak_pointer(&self->size_focus_before);
   g_clear_weak_pointer(&self->palette_add_button);
   g_clear_pointer(&self->saved_path, g_free);
   g_clear_pointer(&self->active_touch_sequences, g_hash_table_unref);
@@ -3547,10 +3557,15 @@ waytator_window_bind_template_children(GtkWidgetClass *widget_class)
   gtk_widget_class_bind_template_child(widget_class, WaytatorWindow, color_button);
   gtk_widget_class_bind_template_child(widget_class, WaytatorWindow, fill_color_button);
   gtk_widget_class_bind_template_child(widget_class, WaytatorWindow, width_scale);
-  gtk_widget_class_bind_template_child(widget_class, WaytatorWindow, size_button);
-  gtk_widget_class_bind_template_child(widget_class, WaytatorWindow, size_button_label);
+  gtk_widget_class_bind_template_child(widget_class, WaytatorWindow, size_drawer);
+  gtk_widget_class_bind_template_child(widget_class, WaytatorWindow, size_presets);
+  gtk_widget_class_bind_template_child(widget_class, WaytatorWindow, size_readout);
+  gtk_widget_class_bind_template_child(widget_class, WaytatorWindow, size_value_box);
+  gtk_widget_class_bind_template_child(widget_class, WaytatorWindow, size_value_stack);
+  gtk_widget_class_bind_template_child(widget_class, WaytatorWindow, size_value_label);
+  gtk_widget_class_bind_template_child(widget_class, WaytatorWindow, size_value_entry);
+  gtk_widget_class_bind_template_child(widget_class, WaytatorWindow, size_drawer_button);
   gtk_widget_class_bind_template_child(widget_class, WaytatorWindow, text_size_spin);
-  gtk_widget_class_bind_template_child(widget_class, WaytatorWindow, precise_size_spin);
   gtk_widget_class_bind_template_child(widget_class, WaytatorWindow, blur_type_dropdown);
 }
 
@@ -3736,9 +3751,6 @@ waytator_window_setup_popovers(WaytatorWindow *self)
                                             GTK_ARROW_DOWN,
                                             GTK_POS_BOTTOM);
   waytator_window_setup_menu_button_popover(self->file_button,
-                                            GTK_ARROW_UP,
-                                            GTK_POS_TOP);
-  waytator_window_setup_menu_button_popover(self->size_button,
                                             GTK_ARROW_UP,
                                             GTK_POS_TOP);
 }

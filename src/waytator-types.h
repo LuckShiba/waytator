@@ -34,6 +34,9 @@ typedef enum {
 //one slot per digit key, how many are in use is up to the user
 #define WAYTATOR_MAX_PALETTE_COLORS 9
 
+//thin, medium, thick
+#define WAYTATOR_N_SIZE_PRESETS 3
+
 //order is priority, when two share a key the earlier one gets it
 typedef enum {
   WAYTATOR_SHORTCUT_CLOSE_WINDOW,

@@ -644,7 +644,7 @@
 
                 <property name="start-widget">
                   <object class="GtkBox" id="file_group">
-                    <property name="valign">fill</property>
+                    <property name="valign">end</property>
                     <style>
                       <class name="overlay-pill"/>
                       <class name="overlay-readout"/>
@@ -674,118 +674,179 @@
                     <property name="valign">fill</property>
                     <child>
                       <object class="GtkBox" id="settings_group">
-                        <property name="spacing">4</property>
+                        <property name="orientation">vertical</property>
                         <property name="sensitive">False</property>
-                        <property name="valign">fill</property>
+                        <property name="valign">end</property>
                         <style>
                           <class name="overlay-pill"/>
                           <class name="settings-group"/>
                         </style>
                         <child>
-                          <object class="GtkColorDialogButton" id="color_button">
-                            <property name="valign">center</property>
-                            <property name="tooltip-text">Stroke color</property>
-                            <property name="dialog">
-                              <object class="GtkColorDialog"/>
-                            </property>
-                            <property name="rgba">rgba(245, 51, 71, 1.0)</property>
-                          </object>
-                        </child>
-                        <child>
-                          <object class="GtkColorDialogButton" id="fill_color_button">
-                            <property name="valign">center</property>
-                            <property name="tooltip-text">Fill color</property>
-                            <property name="dialog">
-                              <object class="GtkColorDialog">
-                                <property name="with-alpha">True</property>
-                              </object>
-                            </property>
-                            <property name="rgba">rgba(245, 51, 71, 0.0)</property>
-                          </object>
-                        </child>
-                        <child>
-                          <object class="GtkDropDown" id="blur_type_dropdown">
-                            <property name="valign">center</property>
-                            <property name="model">
-                              <object class="GtkStringList">
-                                <items>
-                                  <item>Blur</item>
-                                  <item>Pixelate</item>
-                                </items>
-                              </object>
-                            </property>
-                          </object>
-                        </child>
-                        <child>
-                          <object class="GtkScale" id="width_scale">
-                            <property name="orientation">horizontal</property>
-                            <property name="width-request">150</property>
-                            <property name="valign">center</property>
-                            <property name="draw-value">False</property>
-                            <property name="adjustment">
-                              <object class="GtkAdjustment">
-                                <property name="lower">1.0</property>
-                                <property name="upper">100.0</property>
-                                <property name="value">6.0</property>
-                                <property name="step-increment">1.0</property>
-                              </object>
-                            </property>
-                          </object>
-                        </child>
-                        <child>
-                          <object class="GtkMenuButton" id="size_button">
-                            <property name="valign">center</property>
-                            <property name="tooltip-text">Set size precisely</property>
-                            <property name="always-show-arrow">False</property>
-                            <style>
-                              <class name="flat"/>
-                              <class name="size-button"/>
-                            </style>
+                          <object class="GtkRevealer" id="size_drawer">
+                            <property name="transition-type">slide-up</property>
+                            <property name="transition-duration">180</property>
                             <property name="child">
-                              <object class="GtkLabel" id="size_button_label">
-                                <property name="label">6 px</property>
-                                <property name="width-chars">4</property>
-                                <property name="xalign">0.5</property>
+                              <object class="GtkScale" id="width_scale">
+                                <property name="orientation">horizontal</property>
+                                <property name="draw-value">False</property>
+                                <property name="round-digits">0</property>
+                                <property name="adjustment">
+                                  <object class="GtkAdjustment">
+                                    <property name="lower">1.0</property>
+                                    <property name="upper">100.0</property>
+                                    <property name="value">8.0</property>
+                                    <property name="step-increment">1.0</property>
+                                  </object>
+                                </property>
                               </object>
                             </property>
-                            <property name="popover">
-                              <object class="GtkPopover">
+                          </object>
+                        </child>
+                        <child>
+                          <object class="GtkBox">
+                            <property name="spacing">4</property>
+                            <child>
+                              <object class="GtkColorDialogButton" id="color_button">
+                                <property name="valign">center</property>
+                                <property name="tooltip-text">Stroke color</property>
+                                <property name="dialog">
+                                  <object class="GtkColorDialog"/>
+                                </property>
+                                <property name="rgba">rgba(245, 51, 71, 1.0)</property>
+                              </object>
+                            </child>
+                            <child>
+                              <object class="GtkColorDialogButton" id="fill_color_button">
+                                <property name="valign">center</property>
+                                <property name="tooltip-text">Fill color</property>
+                                <property name="dialog">
+                                  <object class="GtkColorDialog">
+                                    <property name="with-alpha">True</property>
+                                  </object>
+                                </property>
+                                <property name="rgba">rgba(245, 51, 71, 0.0)</property>
+                              </object>
+                            </child>
+                            <child>
+                              <object class="GtkDropDown" id="blur_type_dropdown">
+                                <property name="valign">center</property>
+                                <property name="model">
+                                  <object class="GtkStringList">
+                                    <items>
+                                      <item>Blur</item>
+                                      <item>Pixelate</item>
+                                    </items>
+                                  </object>
+                                </property>
+                              </object>
+                            </child>
+                            <child>
+                              <object class="GtkBox" id="size_presets">
+                                <property name="spacing">2</property>
+                                <property name="valign">center</property>
+                                <style>
+                                  <class name="size-presets"/>
+                                </style>
                                 <child>
-                                  <object class="GtkBox">
-                                    <property name="margin-start">10</property>
-                                    <property name="margin-end">10</property>
-                                    <property name="margin-top">10</property>
-                                    <property name="margin-bottom">10</property>
+                                  <object class="GtkButton">
+                                    <property name="icon-name">waytator-stroke-thin-symbolic</property>
+                                    <property name="focus-on-click">False</property>
+                                    <style>
+                                      <class name="flat"/>
+                                    </style>
+                                  </object>
+                                </child>
+                                <child>
+                                  <object class="GtkButton">
+                                    <property name="icon-name">waytator-stroke-medium-symbolic</property>
+                                    <property name="focus-on-click">False</property>
+                                    <style>
+                                      <class name="flat"/>
+                                    </style>
+                                  </object>
+                                </child>
+                                <child>
+                                  <object class="GtkButton">
+                                    <property name="icon-name">waytator-stroke-thick-symbolic</property>
+                                    <property name="focus-on-click">False</property>
+                                    <style>
+                                      <class name="flat"/>
+                                    </style>
+                                  </object>
+                                </child>
+                              </object>
+                            </child>
+                            <child>
+                              <object class="GtkBox" id="size_readout">
+                                <property name="spacing">4</property>
+                                <property name="valign">center</property>
+                                <style>
+                                  <class name="size-readout"/>
+                                </style>
+                                <child>
+                                  <object class="GtkBox" id="size_value_box">
+                                    <property name="spacing">3</property>
+                                    <property name="tooltip-text">Drag to change, click to type</property>
+                                    <style>
+                                      <class name="size-value"/>
+                                    </style>
                                     <child>
-                                      <object class="GtkSpinButton" id="precise_size_spin">
+                                      <object class="GtkStack" id="size_value_stack">
                                         <property name="valign">center</property>
-                                        <property name="adjustment">
-                                          <object class="GtkAdjustment">
-                                            <property name="lower">1.0</property>
-                                            <property name="upper">100.0</property>
-                                            <property name="value">6.0</property>
-                                            <property name="step-increment">1.0</property>
+                                        <child>
+                                          <object class="GtkLabel" id="size_value_label">
+                                            <property name="label">8</property>
+                                            <property name="width-chars">3</property>
+                                            <property name="max-width-chars">3</property>
+                                            <property name="xalign">1</property>
                                           </object>
-                                        </property>
+                                        </child>
+                                        <child>
+                                          <object class="GtkText" id="size_value_entry">
+                                            <property name="width-chars">3</property>
+                                            <property name="max-width-chars">3</property>
+                                            <property name="max-length">3</property>
+                                            <property name="xalign">1</property>
+                                            <property name="input-purpose">digits</property>
+                                          </object>
+                                        </child>
+                                      </object>
+                                    </child>
+                                    <child>
+                                      <object class="GtkLabel">
+                                        <property name="label">px</property>
+                                        <style>
+                                          <class name="size-unit"/>
+                                        </style>
                                       </object>
                                     </child>
                                   </object>
                                 </child>
+                                <child>
+                                  <object class="GtkToggleButton" id="size_drawer_button">
+                                    <property name="icon-name">waytator-chevron-up-symbolic</property>
+                                    <property name="focus-on-click">False</property>
+                                    <property name="tooltip-text">Show size slider</property>
+                                    <style>
+                                      <class name="flat"/>
+                                    </style>
+                                  </object>
+                                </child>
                               </object>
-                            </property>
-                          </object>
-                        </child>
-                        <child>
-                          <object class="GtkSpinButton" id="text_size_spin">
-                            <property name="valign">center</property>
-                            <property name="adjustment">
-                              <object class="GtkAdjustment">
-                                <property name="lower">8.0</property>
-                                <property name="upper">200.0</property>
-                                <property name="value">24.0</property>
-                                <property name="step-increment">1.0</property>
+                            </child>
+                            <child>
+                              <object class="GtkSpinButton" id="text_size_spin">
+                                <property name="valign">center</property>
+                                <property name="adjustment">
+                                  <object class="GtkAdjustment">
+                                    <property name="lower">8.0</property>
+                                    <property name="upper">200.0</property>
+                                    <property name="value">24.0</property>
+                                    <property name="step-increment">1.0</property>
+                                  </object>
+                                </property>
                               </object>
-                            </property>
+                            </child>
                           </object>
                         </child>
                       </object>
@@ -794,7 +855,7 @@
                     <child>
                       <object class="GtkBox" id="ocr_panel_toggle_container">
                         <property name="visible">False</property>
-                        <property name="valign">center</property>
+                        <property name="valign">end</property>
                         <style>
                           <class name="overlay-pill"/>
                           <class name="overlay-readout"/>
@@ -823,7 +884,7 @@
                       <object class="GtkBox" id="zoom_group">
                         <property name="spacing">8</property>
                         <property name="sensitive">False</property>
-                        <property name="valign">fill</property>
+                        <property name="valign">end</property>
                         <style>
                           <class name="overlay-pill"/>
                           <class name="zoom-group"/>
