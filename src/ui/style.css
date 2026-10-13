@@ -173,6 +173,13 @@
   -gtk-icon-size: 16px;
 }
 
+.tool-shortcut-hint {
+  margin: 0 -3px -4px 0;
+  font-size: 8px;
+  font-weight: 700;
+  color: alpha(currentColor, 0.6);
+}
+
 .zoom-label {
   color: white;
   font-weight: 600;

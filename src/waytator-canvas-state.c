@@ -1,5 +1,7 @@
 #include "waytator-window-private.h"
 
+#include <math.h>
+
 #include "waytator-stroke.h"
 
 static const char *
@@ -240,6 +242,138 @@ waytator_window_blur_type_changed(GtkDropDown *dropdown,
     self->blur_type = gtk_drop_down_get_selected(dropdown);
     gtk_widget_queue_draw(GTK_WIDGET(self->drawing_area));
   }
+}
+
+static GtkToggleButton *
+waytator_window_tool_button(WaytatorWindow *self,
+                            WaytatorTool    tool)
+{
+  switch (tool) {
+  case WAYTATOR_TOOL_PAN:
+    return self->pan_tool_button;
+  case WAYTATOR_TOOL_CROP:
+    return self->crop_tool_button;
+  case WAYTATOR_TOOL_MARKER:
+    return self->highlighter_tool_button;
+  case WAYTATOR_TOOL_ERASER:
+    return self->eraser_tool_button;
+  case WAYTATOR_TOOL_RECTANGLE:
+    return self->rectangle_tool_button;
+  case WAYTATOR_TOOL_CIRCLE:
+    return self->circle_tool_button;
+  case WAYTATOR_TOOL_LINE:
+    return self->line_tool_button;
+  case WAYTATOR_TOOL_ARROW:
+    return self->arrow_tool_button;
+  case WAYTATOR_TOOL_OCR:
+    return self->ocr_tool_button;
+  case WAYTATOR_TOOL_TEXT:
+    return self->text_tool_button;
+  case WAYTATOR_TOOL_BLUR:
+    return self->blur_tool_button;
+  default:
+    return self->brush_tool_button;
+  }
+}
+
+void
+waytator_window_select_tool(WaytatorWindow *self,
+                            WaytatorTool    tool)
+{
+  gtk_toggle_button_set_active(waytator_window_tool_button(self, tool), TRUE);
+}
+
+void
+waytator_window_step_tool_size(WaytatorWindow *self,
+                               int             direction)
+{
+  const double value = self->tool_widths[self->active_tool];
+  const double step = MAX(1.0, round(value * 0.1));
+
+  if (!waytator_tool_has_size_control(self->active_tool))
+    return;
+
+  //both clamp to their own range and report back through value-changed
+  if (self->active_tool == WAYTATOR_TOOL_TEXT)
+    gtk_spin_button_set_value(self->text_size_spin, value + direction * step);
+  else
+    gtk_range_set_value(GTK_RANGE(self->width_scale), value + direction * step);
+}
+
+void
+waytator_window_apply_palette_color(WaytatorWindow *self,
+                                    guint           index)
+{
+  GdkRGBA color;
+
+  if (index >= self->n_palette_colors || !gtk_widget_get_visible(GTK_WIDGET(self->color_button)))
+    return;
+
+  color = self->palette_colors[index];
+  color.alpha = self->tool_colors[self->active_tool].alpha;
+  gtk_color_dialog_button_set_rgba(self->color_button, &color);
+}
+
+void
+waytator_window_update_tool_shortcut_hints(WaytatorWindow *self)
+{
+  for (int tool = 0; tool <= WAYTATOR_TOOL_BLUR; tool++) {
+    const WaytatorShortcut shortcut = WAYTATOR_SHORTCUT_TOOL_FIRST + tool;
+    const char *title = waytator_window_shortcut_title(shortcut);
+    const char *accelerator = waytator_window_shortcut_accel(self, shortcut);
+    g_autofree char *label = NULL;
+    g_autofree char *tooltip = NULL;
+    guint keyval = 0;
+    GdkModifierType modifiers = 0;
+
+    if (self->tool_shortcut_hints[tool] == NULL)
+      continue;
+
+    if (accelerator != NULL
+        && waytator_window_shortcut_conflict(self, shortcut, TRUE) < 0)
+      gtk_accelerator_parse(accelerator, &keyval, &modifiers);
+
+    if (keyval != 0) {
+      label = gtk_accelerator_get_label(gdk_keyval_to_upper(keyval), modifiers);
+      tooltip = g_strdup_printf("%s (%s)", title, label);
+    }
+
+    //the corner only has room for a bare key
+    if (label != NULL && g_utf8_strlen(label, -1) <= 2)
+      gtk_label_set_text(GTK_LABEL(self->tool_shortcut_hints[tool]), label);
+    gtk_widget_set_visible(self->tool_shortcut_hints[tool],
+                           label != NULL && g_utf8_strlen(label, -1) <= 2);
+    gtk_widget_set_tooltip_text(GTK_WIDGET(waytator_window_tool_button(self, tool)),
+                                tooltip != NULL ? tooltip : title);
+  }
+}
+
+void
+waytator_window_setup_tool_shortcut_hints(WaytatorWindow *self)
+{
+  for (int tool = 0; tool <= WAYTATOR_TOOL_BLUR; tool++) {
+    GtkButton *button = GTK_BUTTON(waytator_window_tool_button(self, tool));
+    GtkWidget *overlay = gtk_overlay_new();
+    GtkWidget *icon = gtk_button_get_child(button);
+    GtkWidget *hint = gtk_label_new(NULL);
+
+    //move the icon under the overlay so the key can sit on top of it
+    g_object_ref(icon);
+    gtk_button_set_child(button, NULL);
+    gtk_overlay_set_child(GTK_OVERLAY(overlay), icon);
+    g_object_unref(icon);
+    gtk_widget_add_css_class(hint, "tool-shortcut-hint");
+    gtk_widget_set_halign(hint, GTK_ALIGN_END);
+    gtk_widget_set_valign(hint, GTK_ALIGN_END);
+    gtk_widget_set_can_target(hint, FALSE);
+    gtk_overlay_add_overlay(GTK_OVERLAY(overlay), hint);
+    gtk_button_set_child(button, overlay);
+    //setting a child drops the class that keeps the button icon sized
+    gtk_widget_add_css_class(GTK_WIDGET(button), "image-button");
+    self->tool_shortcut_hints[tool] = hint;
+  }
+
+  waytator_window_update_tool_shortcut_hints(self);
 }
 
 static void

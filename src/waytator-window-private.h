@@ -89,6 +89,10 @@ struct _WaytatorWindow {
   GtkCssProvider *widget_css_provider;
   char *shortcut_accels[WAYTATOR_N_SHORTCUTS];
   char *shortcut_overrides[WAYTATOR_N_SHORTCUTS];
+  AdwActionRow *shortcut_rows[WAYTATOR_N_SHORTCUTS];
+  AdwPreferencesGroup *palette_group;
+  GtkWidget *palette_add_button;
+  GtkWidget *tool_shortcut_hints[WAYTATOR_TOOL_BLUR + 1];
 
   GFile *current_file;
   char *source_name;
@@ -154,6 +158,8 @@ struct _WaytatorWindow {
   GdkRGBA default_primary_color;
   GdkRGBA default_highlighter_color;
   GdkRGBA default_fill_color;
+  GdkRGBA palette_colors[WAYTATOR_MAX_PALETTE_COLORS];
+  guint n_palette_colors;
   double tool_widths[WAYTATOR_TOOL_BLUR + 1];
   GdkRGBA tool_colors[WAYTATOR_TOOL_BLUR + 1];
   GdkRGBA tool_fill_colors[WAYTATOR_TOOL_BLUR + 1];
@@ -180,6 +186,18 @@ const char *waytator_window_shortcut_accel(WaytatorWindow  *self,
                                            WaytatorShortcut shortcut);
 void waytator_window_activate_shortcut(WaytatorWindow  *self,
                                        WaytatorShortcut shortcut);
+const char *waytator_window_shortcut_title(WaytatorShortcut shortcut);
+int waytator_window_shortcut_conflict(WaytatorWindow  *self,
+                                      WaytatorShortcut shortcut,
+                                      gboolean         with_overrides);
+void waytator_window_select_tool(WaytatorWindow *self,
+                                 WaytatorTool    tool);
+void waytator_window_step_tool_size(WaytatorWindow *self,
+                                    int             direction);
+void waytator_window_apply_palette_color(WaytatorWindow *self,
+                                         guint           index);
+void waytator_window_setup_tool_shortcut_hints(WaytatorWindow *self);
+void waytator_window_update_tool_shortcut_hints(WaytatorWindow *self);
 void waytator_window_restore_strokes(WaytatorWindow *self,
                                      GPtrArray      *strokes);
 
