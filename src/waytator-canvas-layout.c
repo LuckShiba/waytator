@@ -389,9 +389,6 @@ waytator_window_sync_state(WaytatorWindow *self)
   gtk_widget_set_visible(self->tool_group, has_image);
   gtk_widget_set_visible(self->history_actions, has_image);
   gtk_widget_set_visible(self->document_actions, has_image);
-  //with no file there is nothing to choose between, the plain button goes straight to the dialog
-  gtk_widget_set_visible(GTK_WIDGET(self->save_button), has_current_file);
-  gtk_widget_set_visible(GTK_WIDGET(self->save_as_button), !has_current_file);
   gtk_widget_set_visible(self->file_group, has_image);
   gtk_widget_set_visible(self->zoom_group, has_image);
   gtk_widget_set_visible(self->settings_group, has_image);

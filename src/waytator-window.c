@@ -2369,6 +2369,46 @@ waytator_window_flash_copy_success(WaytatorWindow *self)
                                                  g_object_ref(self));
 }
 
+//a capture with a screenshot folder to go to, and no file of its own yet
+static gboolean
+waytator_window_saves_to_folder(WaytatorWindow *self)
+{
+  return self->from_capture && self->current_file == NULL && *self->screenshot_save_dir != '\0';
+}
+
+//the menu only exists where there is a choice, an image with nowhere obvious to go gets the plain button and a dialog
+static void
+waytator_window_update_save_menu(WaytatorWindow *self)
+{
+  const gboolean to_folder = waytator_window_saves_to_folder(self);
+  const gboolean has_menu = self->current_file != NULL || to_folder;
+  g_autofree char *folder = to_folder ? waytator_screenshot_display_path(self->screenshot_save_dir) : NULL;
+  g_autofree char *key = g_strdup_printf("%d:%s", self->current_file != NULL, folder != NULL ? folder : "");
+
+  if (self->save_menu == NULL)
+    return;
+
+  gtk_widget_set_visible(GTK_WIDGET(self->save_button), has_menu);
+  gtk_widget_set_visible(GTK_WIDGET(self->save_as_button), !has_menu);
+
+  //rebuilding it while nothing changed would close a menu that is open
+  if (g_strcmp0(key, self->save_menu_key) == 0)
+    return;
+
+  g_free(self->save_menu_key);
+  self->save_menu_key = g_steal_pointer(&key);
+  g_menu_remove_all(self->save_menu);
+  if (to_folder) {
+    g_autofree char *label = g_strdup_printf("Save to %s", folder);
+
+    g_menu_append(self->save_menu, label, "win.save-image");
+    g_menu_append(self->save_menu, "Save as…", "win.save-as");
+  } else {
+    g_menu_append(self->save_menu, "Save", "win.save");
+    g_menu_append(self->save_menu, "Save as copy", "win.save-copy");
+  }
+}
+
 void
 waytator_window_reset_save_button(WaytatorWindow *self)
 {
@@ -2379,14 +2419,7 @@ waytator_window_reset_save_button(WaytatorWindow *self)
   gtk_stack_set_visible_child(self->save_icon_stack, GTK_WIDGET(self->save_default_icon));
   gtk_widget_set_sensitive(GTK_WIDGET(self->save_button), can_save);
   gtk_widget_set_sensitive(GTK_WIDGET(self->save_as_button), can_save);
-  if (self->from_capture && self->current_file == NULL && *self->screenshot_save_dir != '\0') {
-    g_autofree char *folder = waytator_screenshot_display_path(self->screenshot_save_dir);
-    g_autofree char *tooltip = g_strdup_printf("Save to %s", folder);
-
-    gtk_widget_set_tooltip_text(GTK_WIDGET(self->save_as_button), tooltip);
-  } else {
-    gtk_widget_set_tooltip_text(GTK_WIDGET(self->save_as_button), "Save");
-  }
+  waytator_window_update_save_menu(self);
   gtk_widget_action_set_enabled(GTK_WIDGET(self), "win.save", has_unsaved_changes && self->current_file != NULL);
   gtk_widget_action_set_enabled(GTK_WIDGET(self), "win.save-copy", can_save);
 }
@@ -3080,14 +3113,10 @@ waytator_window_save_capture_to_folder(WaytatorWindow *self)
 static void
 waytator_window_show_save_dialog(WaytatorWindow *self)
 {
-  g_autoptr(GtkFileDialog) dialog = NULL;
+  g_autoptr(GtkFileDialog) dialog = gtk_file_dialog_new();
   g_autofree char *basename = NULL;
   g_autofree char *copy_name = NULL;
 
-  if (waytator_window_save_capture_to_folder(self))
-    return;
-
-  dialog = gtk_file_dialog_new();
 
   //without a file there is no original for this to be a copy of
   if (self->current_file != NULL) {
@@ -3105,6 +3134,31 @@ waytator_window_show_save_dialog(WaytatorWindow *self)
                        NULL,
                        waytator_window_save_copy_ready,
                        g_object_ref(self));
+}
+
+//the first save of an image with no file: the screenshot folder when it applies, a dialog otherwise
+static void
+waytator_window_save_new(WaytatorWindow *self)
+{
+  if (!waytator_window_save_capture_to_folder(self))
+    waytator_window_show_save_dialog(self);
+}
+
+//always asks, for a capture that should not end up in the screenshot folder
+static void
+waytator_window_save_as_action(GtkWidget  *widget,
+                               const char *action_name,
+                               GVariant   *parameter)
+{
+  WaytatorWindow *self = WAYTATOR_WINDOW(widget);
+
+  (void) action_name;
+  (void) parameter;
+
+  if (self->texture == NULL || self->save_in_progress || self->after_save != WAYTATOR_AFTER_SAVE_NONE)
+    return;
+
+  waytator_window_show_save_dialog(self);
 }
 
 static void
@@ -3136,7 +3190,7 @@ waytator_window_save_image_action(GtkWidget  *widget,
     return;
 
   if (self->current_file == NULL)
-    waytator_window_show_save_dialog(self);
+    waytator_window_save_new(self);
   else if (waytator_window_has_unsaved_changes(self))
     waytator_window_save_overwrite(self);
 }
@@ -3152,7 +3206,7 @@ waytator_window_save_then(WaytatorWindow   *self,
   g_clear_pointer(&self->saved_path, g_free);
 
   if (self->current_file == NULL) {
-    waytator_window_show_save_dialog(self);
+    waytator_window_save_new(self);
     return;
   }
 
@@ -3967,6 +4021,8 @@ waytator_window_dispose(GObject *object)
   self->capture_delay_id = 0;
   g_clear_pointer(&self->capture_output_name, g_free);
   g_clear_object(&self->adopt_file);
+  g_clear_object(&self->save_menu);
+  g_clear_pointer(&self->save_menu_key, g_free);
   g_clear_pointer(&self->screenshot_save_dir, g_free);
   waytator_window_clear_history(self);
   g_clear_pointer(&self->document, waytator_document_free);
@@ -4095,6 +4151,7 @@ waytator_window_install_actions(GtkWidgetClass *widget_class)
   gtk_widget_class_install_action(widget_class, "win.close-window", NULL, waytator_window_close_window_action);
   gtk_widget_class_install_action(widget_class, "win.save", NULL, waytator_window_save_overwrite_action);
   gtk_widget_class_install_action(widget_class, "win.save-copy", NULL, waytator_window_save_copy_action);
+  gtk_widget_class_install_action(widget_class, "win.save-as", NULL, waytator_window_save_as_action);
   gtk_widget_class_install_action(widget_class, "win.save-image", NULL, waytator_window_save_image_action);
   gtk_widget_class_install_action(widget_class, "win.save-and-close", NULL, waytator_window_save_and_close_action);
   gtk_widget_class_install_action(widget_class, "win.save-copy-and-close", NULL, waytator_window_save_copy_and_close_action);
@@ -4321,6 +4378,9 @@ waytator_window_init(WaytatorWindow *self)
                                  NULL);
   waytator_window_setup_ocr_panel(self);
   waytator_window_setup_window_controls(self);
+  //built here rather than in the template, its entries depend on where the image can be saved
+  self->save_menu = g_menu_new();
+  gtk_menu_button_set_menu_model(self->save_button, G_MENU_MODEL(self->save_menu));
   waytator_window_setup_popovers(self);
   waytator_window_setup_capture_button(self);
   waytator_window_setup_tool_shortcut_hints(self);

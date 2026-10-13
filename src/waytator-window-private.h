@@ -67,6 +67,8 @@ struct _WaytatorWindow {
   GtkWidget *document_actions;
   GtkMenuButton *save_button;
   GtkButton *save_as_button;
+  GMenu *save_menu;
+  char *save_menu_key;
   GtkStack *save_icon_stack;
   GtkImage *save_default_icon;
   GtkImage *save_working_icon;

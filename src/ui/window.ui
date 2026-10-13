@@ -16,19 +16,6 @@
     </section>
   </menu>
 
-  <menu id="save_menu_model">
-    <section>
-      <item>
-        <attribute name="label">Save</attribute>
-        <attribute name="action">win.save</attribute>
-      </item>
-      <item>
-        <attribute name="label">Save as copy</attribute>
-        <attribute name="action">win.save-copy</attribute>
-      </item>
-    </section>
-  </menu>
-
   <menu id="file_menu_model">
     <section>
       <item>
@@ -639,7 +626,6 @@
                             <property name="tooltip-text">Save</property>
                             <property name="sensitive">False</property>
                             <property name="direction">down</property>
-                            <property name="menu-model">save_menu_model</property>
                             <property name="child">
                               <object class="GtkStack" id="save_icon_stack">
                                 <property name="transition-type">crossfade</property>
