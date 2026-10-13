@@ -35,8 +35,7 @@ struct _WaytatorWindow {
   GtkWindowControls *start_window_controls;
   GListModel *start_window_controls_children;
   GtkWidget *open_actions;
-  AdwSplitButton *capture_button;
-  GMenu *capture_menu;
+  GtkButton *capture_button;
   GtkLabel *capture_area_hint;
   GtkLabel *capture_screen_hint;
   GtkLabel *open_hint;

@@ -319,10 +319,13 @@
                             </child>
 
                             <child>
-                              <object class="AdwSplitButton" id="capture_button">
+                              <object class="GtkButton" id="capture_button">
                                 <property name="icon-name">camera-photo-symbolic</property>
-                                <property name="action-name">win.capture</property>
-                                <property name="dropdown-tooltip">Capture modes</property>
+                                <property name="action-name">win.capture-area</property>
+                                <style>
+                                  <class name="overlay-button"/>
+                                  <class name="capture-button"/>
+                                </style>
                               </object>
                             </child>
                           </object>

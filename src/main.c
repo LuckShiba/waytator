@@ -66,18 +66,6 @@ app_get_or_create_window(AdwApplication *app)
   return WAYTATOR_WINDOW(window);
 }
 
-//an image arriving from outside never replaces one that is being worked on
-static WaytatorWindow *
-app_get_empty_window(AdwApplication *app)
-{
-  for (GList *link = gtk_application_get_windows(GTK_APPLICATION(app)); link != NULL; link = link->next) {
-    if (WAYTATOR_IS_WINDOW(link->data) && waytator_window_is_empty(WAYTATOR_WINDOW(link->data)))
-      return WAYTATOR_WINDOW(link->data);
-  }
-
-  return waytator_window_new(app);
-}
-
 //what Edit on the notification of a background capture leads to
 static void
 app_edit_screenshot(GdkTexture *texture,
@@ -85,7 +73,7 @@ app_edit_screenshot(GdkTexture *texture,
                     const char *name,
                     gpointer    user_data)
 {
-  WaytatorWindow *window = app_get_empty_window(ADW_APPLICATION(user_data));
+  WaytatorWindow *window = waytator_window_for_new_image(GTK_APPLICATION(user_data));
   g_autoptr(GError) error = NULL;
 
   //the saved file may be gone by the time someone clicks, the capture itself is still around
@@ -134,7 +122,7 @@ app_open(GApplication  *app,
   (void) hint;
   (void) user_data;
 
-  window = app_get_empty_window(ADW_APPLICATION(app));
+  window = waytator_window_for_new_image(GTK_APPLICATION(app));
 
   if (n_files > 0 && files[0] != NULL && !waytator_window_open_file(window, files[0], &error)) {
     g_printerr("Error loading image: %s\n", error->message);
@@ -150,7 +138,8 @@ app_open(GApplication  *app,
   "  --name NAME                             Name for an image read from stdin\n" \
   "  --screenshot [area|screen]              Capture the screen and open the result,\n" \
   "                                          an area unless told otherwise\n" \
-  "  --output NAME                           Screen for --screenshot screen, e.g. DP-1\n" \
+  "  --screen NAME                           With --screenshot: capture this screen,\n" \
+  "                                          e.g. DP-1\n" \
   "  --notify                                With --screenshot: save, copy and notify\n" \
   "                                          instead of opening the editor\n" \
   "  --close-on-copy, --no-close-on-copy     Override the \"Close on copy\" preference\n" \
@@ -205,7 +194,8 @@ app_command_line(GApplication            *app,
   gboolean screenshot = FALSE;
   gboolean notify = FALSE;
   WaytatorCaptureMode capture_mode = WAYTATOR_CAPTURE_AREA;
-  const char *capture_output = NULL;
+  const char *capture_screen = NULL;
+  gboolean capture_area_given = FALSE;
   int close_on_copy = -1;
   const char *shortcuts[G_N_ELEMENTS(app_shortcut_options)] = { NULL };
   const char *stdin_name = "stdin.png";
@@ -258,6 +248,7 @@ app_command_line(GApplication            *app,
       //the mode is optional, anything else after the flag is left for the next round
       if (i + 1 < argc && g_strcmp0(arguments[i + 1], "area") == 0) {
         capture_mode = WAYTATOR_CAPTURE_AREA;
+        capture_area_given = TRUE;
         i++;
       } else if (i + 1 < argc && g_strcmp0(arguments[i + 1], "screen") == 0) {
         capture_mode = WAYTATOR_CAPTURE_SCREEN;
@@ -272,15 +263,15 @@ app_command_line(GApplication            *app,
       continue;
     }
 
-    if (g_strcmp0(arguments[i], "--output") == 0) {
+    if (g_strcmp0(arguments[i], "--screen") == 0) {
       if (i + 1 >= argc) {
         g_application_command_line_printerr(command_line,
-                                            "Missing value for --output\n");
+                                            "Missing value for --screen\n");
         status = 1;
         goto done;
       }
 
-      capture_output = arguments[++i];
+      capture_screen = arguments[++i];
       continue;
     }
 
@@ -322,11 +313,16 @@ app_command_line(GApplication            *app,
     goto done;
   }
 
-  if (capture_output != NULL && !(screenshot && capture_mode == WAYTATOR_CAPTURE_SCREEN)) {
-    g_application_command_line_printerr(command_line,
-                                        "--output only applies to --screenshot screen\n");
-    status = 1;
-    goto done;
+  //naming a screen is asking for that screen, there is no need to say screen twice
+  if (capture_screen != NULL) {
+    if (!screenshot || capture_area_given) {
+      g_application_command_line_printerr(command_line,
+                                          "--screen only applies to --screenshot, and not to an area\n");
+      status = 1;
+      goto done;
+    }
+
+    capture_mode = WAYTATOR_CAPTURE_SCREEN;
   }
 
   if (notify && !screenshot) {
@@ -338,13 +334,13 @@ app_command_line(GApplication            *app,
 
   //no window at all here, one only appears if the notification is used to ask for it
   if (notify) {
-    waytator_screenshot_capture_background(app, capture_mode, capture_output, app_edit_screenshot, app);
+    waytator_screenshot_capture_background(app, capture_mode, capture_screen, app_edit_screenshot, app);
     goto done;
   }
 
   //a bare launch brings back whatever is already open, anything carrying an image gets a window to itself
   window = screenshot || use_stdin || file != NULL
-         ? app_get_empty_window(ADW_APPLICATION(app))
+         ? waytator_window_for_new_image(GTK_APPLICATION(app))
          : app_get_or_create_window(ADW_APPLICATION(app));
   waytator_window_clear_overrides(window);
   if (close_on_copy >= 0)
@@ -356,7 +352,7 @@ app_command_line(GApplication            *app,
 
   //the window shows itself once the capture is over
   if (screenshot) {
-    waytator_window_start_capture(window, capture_mode, capture_output);
+    waytator_window_start_capture(window, capture_mode, capture_screen);
     goto done;
   }
 

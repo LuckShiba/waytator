@@ -22,6 +22,7 @@ void waytator_window_open_capture(WaytatorWindow *self,
                                   GdkTexture     *texture,
                                   const char     *display_name);
 gboolean waytator_window_is_empty(WaytatorWindow *self);
+WaytatorWindow *waytator_window_for_new_image(GtkApplication *app);
 void waytator_window_start_capture(WaytatorWindow     *self,
                                    WaytatorCaptureMode mode,
                                    const char         *output_name);

@@ -73,7 +73,7 @@ waytator --screenshot          # drag to select an area
 waytator --screenshot screen   # a whole screen
 ```
 
-The screen freezes while you choose, and `Esc` or a right click cancels. With more than one monitor, `--screenshot screen` lets you click the one you want, or takes it straight away with `--output DP-1`. The same captures are available inside the app, from the camera button next to Open.
+The screen freezes while you choose, and `Esc` or a right click cancels. With more than one screen, `--screenshot screen` lets you click the one you want, and `--screenshot --screen DP-1` takes that one straight away. The same captures are available inside the app, from the camera button next to Open.
 
 Add `--notify` to take the screenshot without opening the editor:
 
@@ -81,7 +81,7 @@ Add `--notify` to take the screenshot without opening the editor:
 waytator --screenshot --notify
 ```
 
-The screenshot is saved to `~/Pictures/Screenshots`, copied to the clipboard, and a notification offers to open or edit it. The folder and the clipboard copy can be changed or turned off in Preferences → Screenshots.
+The screenshot is saved to `~/Pictures/Screenshots`, copied to the clipboard, and a notification offers to open or edit it. A screenshot that opens in the editor goes to the same folder when you save it. The folder and the clipboard copy can be changed or turned off in Preferences → Screenshots.
 
 Read from stdin automatically when image data is piped in:
 

@@ -372,30 +372,9 @@
   color: transparent;
 }
 
-.open-group splitbutton > button,
-.open-group splitbutton > menubutton > button {
+.open-group button.capture-button {
   min-width: 32px;
-  min-height: 32px;
   padding: 0;
-  border-radius: 10px;
-  color: white;
-  background: transparent;
-  background-color: transparent;
-  border-color: transparent;
-  box-shadow: none;
-}
-
-.open-group splitbutton > menubutton > button {
-  min-width: 22px;
-}
-
-.open-group splitbutton > button:hover,
-.open-group splitbutton > menubutton > button:hover {
-  background: alpha(white, 0.08);
-}
-
-.open-group splitbutton > separator {
-  background: transparent;
 }
 
 .capture-pill {

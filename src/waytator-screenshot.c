@@ -115,7 +115,7 @@ waytator_screenshot_edit(WaytatorScreenshot *shot)
 }
 
 //the reason in words someone who is not looking at a terminal can act on
-static char *
+char *
 waytator_screenshot_describe_save_error(const char   *save_dir,
                                         const GError *error)
 {
@@ -135,16 +135,25 @@ waytator_screenshot_describe_save_error(const char   *save_dir,
 }
 
 //the name is only as precise as a second, two captures inside one get a counter
+static char *
+waytator_screenshot_candidate_name(const char *name,
+                                   int         attempt)
+{
+  const char *extension = strrchr(name, '.');
+  const int stem_length = extension != NULL ? (int) (extension - name) : (int) strlen(name);
+
+  if (attempt == 0)
+    return g_strdup(name);
+
+  return g_strdup_printf("%.*s-%d%s", stem_length, name, attempt, extension != NULL ? extension : "");
+}
+
 static GFile *
-waytator_screenshot_write_file(const char *save_dir,
-                               const char *name,
-                               GBytes     *png,
-                               GError    **error)
+waytator_screenshot_ensure_folder(const char *save_dir,
+                                  GError    **error)
 {
   g_autoptr(GFile) folder = g_file_new_for_path(save_dir);
   g_autoptr(GError) folder_error = NULL;
-  const char *extension = strrchr(name, '.');
-  const int stem_length = extension != NULL ? (int) (extension - name) : (int) strlen(name);
 
   if (!g_file_make_directory_with_parents(folder, NULL, &folder_error)
       && !g_error_matches(folder_error, G_IO_ERROR, G_IO_ERROR_EXISTS)) {
@@ -152,10 +161,45 @@ waytator_screenshot_write_file(const char *save_dir,
     return NULL;
   }
 
+  return g_steal_pointer(&folder);
+}
+
+//a name in the folder that nothing uses yet, for a save that writes the file itself
+GFile *
+waytator_screenshot_reserve_file(const char *save_dir,
+                                 const char *name,
+                                 GError    **error)
+{
+  g_autoptr(GFile) folder = waytator_screenshot_ensure_folder(save_dir, error);
+
+  if (folder == NULL)
+    return NULL;
+
   for (int attempt = 0; attempt < 1000; attempt++) {
-    g_autofree char *candidate = attempt == 0
-                               ? g_strdup(name)
-                               : g_strdup_printf("%.*s-%d%s", stem_length, name, attempt, extension != NULL ? extension : "");
+    g_autofree char *candidate = waytator_screenshot_candidate_name(name, attempt);
+    g_autoptr(GFile) file = g_file_get_child(folder, candidate);
+
+    if (!g_file_query_exists(file, NULL))
+      return g_steal_pointer(&file);
+  }
+
+  g_set_error(error, G_IO_ERROR, G_IO_ERROR_EXISTS, "too many screenshots share the name %s", name);
+  return NULL;
+}
+
+static GFile *
+waytator_screenshot_write_file(const char *save_dir,
+                               const char *name,
+                               GBytes     *png,
+                               GError    **error)
+{
+  g_autoptr(GFile) folder = waytator_screenshot_ensure_folder(save_dir, error);
+
+  if (folder == NULL)
+    return NULL;
+
+  for (int attempt = 0; attempt < 1000; attempt++) {
+    g_autofree char *candidate = waytator_screenshot_candidate_name(name, attempt);
     g_autoptr(GFile) file = g_file_get_child(folder, candidate);
     g_autoptr(GFileOutputStream) stream = NULL;
     g_autoptr(GError) create_error = NULL;
@@ -325,7 +369,7 @@ waytator_screenshot_notification_body(WaytatorScreenshot *shot)
 
   return shot->copied
        ? g_strdup("Copied to the clipboard.")
-       : g_strdup("Not saved anywhere yet. Choose Edit to keep it.");
+       : g_strdup("Due to your settings, this screenshot is neither saved nor copied. Choose Edit to keep it.");
 }
 
 static void
@@ -559,7 +603,7 @@ waytator_screenshot_outputs_ready(GObject      *source_object,
   g_set_error_literal(&error,
                       G_IO_ERROR,
                       G_IO_ERROR_FAILED,
-                      "Could not tell which monitor the captured screens belong to");
+                      "Could not match the capture to a screen");
   waytator_screenshot_failed(shot, error);
 }
 
