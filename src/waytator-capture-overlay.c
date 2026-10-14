@@ -36,6 +36,7 @@ struct _WaytatorCaptureOverlay {
   GPtrArray *outputs;
   GPtrArray *windows;
   GPtrArray *views;
+  GtkCssProvider *pill_style;
   WaytatorCaptureMode mode;
   gboolean updating;
   gboolean closed;
@@ -112,6 +113,46 @@ waytator_capture_pick_output(GPtrArray          *outputs,
   return NULL;
 }
 
+//the pill is one of the floating controls, read from the settings since there may be no window to ask
+static GtkCssProvider *
+waytator_capture_overlay_new_pill_style(void)
+{
+  g_autofree char *path = g_build_filename(g_get_user_config_dir(), WAYTATOR_SETTINGS_FILE, NULL);
+  g_autoptr(GKeyFile) key_file = g_key_file_new();
+  g_autofree char *css = NULL;
+  GtkCssProvider *provider = gtk_css_provider_new();
+  gboolean blur = TRUE;
+  double opacity = 0.7;
+  char opacity_text[G_ASCII_DTOSTR_BUF_SIZE];
+
+  if (g_key_file_load_from_file(key_file, path, G_KEY_FILE_NONE, NULL)) {
+    if (g_key_file_has_key(key_file, WAYTATOR_SETTINGS_GROUP, "floating_controls_blur", NULL))
+      blur = g_key_file_get_boolean(key_file, WAYTATOR_SETTINGS_GROUP, "floating_controls_blur", NULL);
+    if (g_key_file_has_key(key_file, WAYTATOR_SETTINGS_GROUP, "floating_controls_opacity", NULL)) {
+      const double value = g_key_file_get_double(key_file,
+                                                 WAYTATOR_SETTINGS_GROUP,
+                                                 "floating_controls_opacity",
+                                                 NULL);
+
+      if (value >= 0.0 && value <= 1.0)
+        opacity = value;
+    }
+  }
+
+  //printf would use the locale's decimal separator, which is not valid css
+  g_ascii_formatd(opacity_text, sizeof opacity_text, "%.2f", opacity);
+  css = g_strdup_printf(".capture-pill { background: alpha(black, %s); background-color: alpha(black, %s);"
+                        " backdrop-filter: %s; }",
+                        opacity_text,
+                        opacity_text,
+                        blur ? "blur(18px)" : "none");
+  gtk_css_provider_load_from_string(provider, css);
+  gtk_style_context_add_provider_for_display(gdk_display_get_default(),
+                                             GTK_STYLE_PROVIDER(provider),
+                                             GTK_STYLE_PROVIDER_PRIORITY_USER + 1);
+  return provider;
+}
+
 static gboolean
 waytator_capture_overlay_free(gpointer user_data)
 {
@@ -120,6 +161,9 @@ waytator_capture_overlay_free(gpointer user_data)
   g_ptr_array_unref(overlay->outputs);
   g_ptr_array_unref(overlay->windows);
   g_ptr_array_unref(overlay->views);
+  gtk_style_context_remove_provider_for_display(gdk_display_get_default(),
+                                                GTK_STYLE_PROVIDER(overlay->pill_style));
+  g_object_unref(overlay->pill_style);
   g_free(overlay);
   return G_SOURCE_REMOVE;
 }
@@ -713,6 +757,7 @@ waytator_capture_overlay_show(GPtrArray                           *outputs,
   overlay->outputs = outputs;
   overlay->windows = g_ptr_array_new();
   overlay->views = g_ptr_array_new();
+  overlay->pill_style = waytator_capture_overlay_new_pill_style();
   overlay->hide_waytator = hide_waytator;
   overlay->retake = retake;
   overlay->callback = callback;
