@@ -2734,7 +2734,25 @@ waytator_window_notify_and_close(WaytatorWindow *self,
       g_dbus_connection_flush_sync(connection, NULL, NULL);
   }
 
-  gtk_window_destroy(GTK_WINDOW(self));
+  //wl-copy borrows the keyboard to set the clipboard on GNOME, and gives it back to this window as it closes
+  waytator_window_destroy_settled((GtkWindow *[]) { GTK_WINDOW(self) }, 1);
+}
+
+//GTK crashes on a tablet pad event for a window that is already gone, and the compositor sends one whenever it
+//hands focus to a window, also one that is on its way out. out of sight the window cannot be handed focus any more,
+//and after a round trip everything sent before that has found it still there, so only then is it destroyed
+void
+waytator_window_destroy_settled(GtkWindow *const *windows,
+                                guint             n_windows)
+{
+  if (n_windows == 0)
+    return;
+
+  for (guint i = 0; i < n_windows; i++)
+    gtk_widget_set_visible(GTK_WIDGET(windows[i]), FALSE);
+  gdk_display_sync(gtk_widget_get_display(GTK_WIDGET(windows[0])));
+  for (guint i = 0; i < n_windows; i++)
+    gtk_window_destroy(windows[i]);
 }
 
 static void
