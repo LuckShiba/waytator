@@ -2,6 +2,10 @@
 
 #include "waytator-types.h"
 
+//zlib's fastest level, for every png waytator writes: the strongest took seconds on a big image
+//for a file only a little smaller
+#define WAYTATOR_PNG_COMPRESSION "1"
+
 WaytatorExportRequest *waytator_export_request_new(GdkTexture            *texture,
                                                    GPtrArray             *strokes,
                                                    WaytatorExportKind     kind,

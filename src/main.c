@@ -2,9 +2,13 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
+#include "waytator-capture.h"
+#include "waytator-screenshot.h"
 #include "waytator-window.h"
 
 #define WAYTATOR_APP_ID "dev.faetalize.waytator"
+//five minutes, longer than anyone needs to get the screen ready
+#define WAYTATOR_MAX_CAPTURE_DELAY 300
 
 static GBytes *
 app_read_stream_bytes(GInputStream *stream,
@@ -104,7 +108,7 @@ app_open(GApplication  *app,
   (void) hint;
   (void) user_data;
 
-  window = app_get_or_create_window(ADW_APPLICATION(app));
+  window = waytator_window_for_new_image(GTK_APPLICATION(app));
 
   if (n_files > 0 && files[0] != NULL && !waytator_window_open_file(window, files[0], &error)) {
     g_printerr("Error loading image: %s\n", error->message);
@@ -118,6 +122,14 @@ app_open(GApplication  *app,
   "Usage: %s [OPTIONS] [IMAGE|-|--stdin]\n" \
   "\n" \
   "  --name NAME                             Name for an image read from stdin\n" \
+  "  --screenshot [area|screen]              Capture the screen and open the result,\n" \
+  "                                          an area unless told otherwise\n" \
+  "  --screen NAME                           With --screenshot: capture this screen,\n" \
+  "                                          e.g. DP-1. Doesn't support GNOME\n" \
+  "  --notify                                With --screenshot: save, copy and notify\n" \
+  "                                          instead of opening the editor\n" \
+  "  --delay SECONDS                         With --screenshot: wait this many whole\n" \
+  "                                          seconds first, at most 300\n" \
   "  --close-on-copy, --no-close-on-copy     Override the \"Close on copy\" preference\n" \
   "  --close-window-shortcut SHORTCUT        Override a shortcut for this launch\n" \
   "  --copy-shortcut SHORTCUT\n" \
@@ -125,6 +137,8 @@ app_open(GApplication  *app,
   "  --save-shortcut SHORTCUT\n" \
   "  --save-and-close-shortcut SHORTCUT\n" \
   "  --save-copy-and-close-shortcut SHORTCUT\n" \
+  "  --capture-area-shortcut SHORTCUT\n" \
+  "  --capture-screen-shortcut SHORTCUT\n" \
   "\n" \
   "SHORTCUT is a key, or modifiers and a key joined with \"+\", for example\n" \
   "\"s\", \"F5\", \"escape\", \"ctrl+s\" or \"ctrl+shift+s\". It can also be\n" \
@@ -141,7 +155,64 @@ static const struct {
   { "--save-shortcut", "save" },
   { "--save-and-close-shortcut", "save-and-close" },
   { "--save-copy-and-close-shortcut", "save-copy-and-close" },
+  { "--capture-area-shortcut", "capture-area" },
+  { "--capture-screen-shortcut", "capture-screen" },
 };
+
+//what a command line asks of the editor, kept for a --notify capture whose window only opens if Edit is clicked
+typedef struct {
+  GApplication *app;
+  int close_on_copy;
+  char *shortcuts[G_N_ELEMENTS(app_shortcut_options)];
+} AppOverrides;
+
+static void
+app_overrides_free(gpointer user_data)
+{
+  AppOverrides *overrides = user_data;
+
+  for (guint i = 0; i < G_N_ELEMENTS(app_shortcut_options); i++)
+    g_free(overrides->shortcuts[i]);
+  g_object_unref(overrides->app);
+  g_free(overrides);
+}
+
+//close_on_copy is -1 when the command line did not say, a shortcut is NULL when it was not given
+static void
+app_apply_overrides(WaytatorWindow    *window,
+                    int                close_on_copy,
+                    const char *const *shortcuts)
+{
+  waytator_window_clear_overrides(window);
+  if (close_on_copy >= 0)
+    waytator_window_set_close_on_copy_override(window, close_on_copy);
+  for (guint i = 0; i < G_N_ELEMENTS(app_shortcut_options); i++) {
+    if (shortcuts[i] != NULL)
+      waytator_window_set_shortcut_override(window, app_shortcut_options[i].name, shortcuts[i]);
+  }
+}
+
+//what Edit on the notification of a background capture leads to
+static void
+app_edit_screenshot(GdkTexture *texture,
+                    GFile      *file,
+                    const char *name,
+                    gboolean    save_failed,
+                    gpointer    user_data)
+{
+  AppOverrides *overrides = user_data;
+  WaytatorWindow *window = waytator_window_for_new_image(GTK_APPLICATION(overrides->app));
+  g_autoptr(GError) error = NULL;
+
+  app_apply_overrides(window, overrides->close_on_copy, (const char *const *) overrides->shortcuts);
+
+  //the saved file may be gone by the time someone clicks, the capture itself is still around.
+  //the folder is only offered again when it worked, one that just failed would only fail again
+  if (file == NULL || !waytator_window_open_file(window, file, &error))
+    waytator_window_open_capture(window, texture, name, !save_failed);
+
+  gtk_window_present(GTK_WINDOW(window));
+}
 
 static int
 app_find_shortcut_option(const char *argument)
@@ -154,6 +225,29 @@ app_find_shortcut_option(const char *argument)
   return -1;
 }
 
+//whole seconds written out in digits, so a sign, a decimal point or a number that would overflow never gets in
+static gboolean
+app_parse_delay(const char *text,
+                guint      *seconds)
+{
+  guint value = 0;
+
+  if (*text == '\0')
+    return FALSE;
+
+  for (const char *c = text; *c != '\0'; c++) {
+    if (!g_ascii_isdigit(*c))
+      return FALSE;
+
+    value = value * 10 + (guint) (*c - '0');
+    if (value > WAYTATOR_MAX_CAPTURE_DELAY)
+      return FALSE;
+  }
+
+  *seconds = value;
+  return TRUE;
+}
+
 static int
 app_command_line(GApplication            *app,
                  GApplicationCommandLine *command_line,
@@ -163,6 +257,13 @@ app_command_line(GApplication            *app,
   int argc = 0;
   int status = 0;
   gboolean use_stdin = FALSE;
+  gboolean screenshot = FALSE;
+  gboolean notify = FALSE;
+  WaytatorCaptureMode capture_mode = WAYTATOR_CAPTURE_AREA;
+  const char *capture_screen = NULL;
+  gboolean capture_area_given = FALSE;
+  const char *delay_text = NULL;
+  guint delay_seconds = 0;
   int close_on_copy = -1;
   const char *shortcuts[G_N_ELEMENTS(app_shortcut_options)] = { NULL };
   const char *stdin_name = "stdin.png";
@@ -209,6 +310,67 @@ app_command_line(GApplication            *app,
       continue;
     }
 
+    if (g_strcmp0(arguments[i], "--screenshot") == 0) {
+      screenshot = TRUE;
+
+      //the mode is optional, anything else after the flag is left for the next round
+      if (i + 1 < argc && g_strcmp0(arguments[i + 1], "area") == 0) {
+        capture_mode = WAYTATOR_CAPTURE_AREA;
+        capture_area_given = TRUE;
+        i++;
+      } else if (i + 1 < argc && g_strcmp0(arguments[i + 1], "screen") == 0) {
+        capture_mode = WAYTATOR_CAPTURE_SCREEN;
+        i++;
+      } else if (i + 1 < argc && arguments[i + 1][0] != '-') {
+        //an image cannot go with a capture anyway, so this is most likely a mistyped mode
+        g_application_command_line_printerr(command_line,
+                                            "Unknown capture mode \"%s\", use area or screen\n",
+                                            arguments[i + 1]);
+        status = 1;
+        goto done;
+      }
+
+      continue;
+    }
+
+    if (g_strcmp0(arguments[i], "--notify") == 0) {
+      notify = TRUE;
+      continue;
+    }
+
+    if (g_strcmp0(arguments[i], "--delay") == 0) {
+      if (i + 1 >= argc) {
+        g_application_command_line_printerr(command_line,
+                                            "Missing value for --delay\n");
+        status = 1;
+        goto done;
+      }
+
+      delay_text = arguments[++i];
+      if (!app_parse_delay(delay_text, &delay_seconds)) {
+        g_application_command_line_printerr(command_line,
+                                            "--delay takes a whole number of seconds from 0 to %d, not \"%s\"\n",
+                                            WAYTATOR_MAX_CAPTURE_DELAY,
+                                            delay_text);
+        status = 1;
+        goto done;
+      }
+
+      continue;
+    }
+
+    if (g_strcmp0(arguments[i], "--screen") == 0) {
+      if (i + 1 >= argc) {
+        g_application_command_line_printerr(command_line,
+                                            "Missing value for --screen\n");
+        status = 1;
+        goto done;
+      }
+
+      capture_screen = arguments[++i];
+      continue;
+    }
+
     if (g_strcmp0(arguments[i], "--help") == 0 || g_strcmp0(arguments[i], "-h") == 0) {
       g_application_command_line_print(command_line, APP_USAGE, arguments[0]);
       goto done;
@@ -240,13 +402,82 @@ app_command_line(GApplication            *app,
     }
   }
 
-  window = app_get_or_create_window(ADW_APPLICATION(app));
-  waytator_window_clear_overrides(window);
-  if (close_on_copy >= 0)
-    waytator_window_set_close_on_copy_override(window, close_on_copy);
-  for (guint i = 0; i < G_N_ELEMENTS(app_shortcut_options); i++) {
-    if (shortcuts[i] != NULL)
-      waytator_window_set_shortcut_override(window, app_shortcut_options[i].name, shortcuts[i]);
+  if (screenshot && (use_stdin || file != NULL)) {
+    g_application_command_line_printerr(command_line,
+                                        "--screenshot cannot be combined with an image to open\n");
+    status = 1;
+    goto done;
+  }
+
+  //naming a screen is asking for that screen, there is no need to say screen twice
+  if (capture_screen != NULL) {
+    if (!screenshot) {
+      g_application_command_line_printerr(command_line,
+                                          "--screen only works with --screenshot\n");
+      status = 1;
+      goto done;
+    }
+
+    //GNOME's screenshot UI is where the screen is picked there, and nothing can pick it beforehand
+    if (waytator_capture_uses_gnome_ui()) {
+      g_application_command_line_printerr(command_line, "--screen doesn't support GNOME\n");
+      status = 1;
+      goto done;
+    }
+
+    if (capture_area_given) {
+      g_application_command_line_printerr(command_line,
+                                          "--screen captures a whole screen, remove \"area\" from your command\n");
+      status = 1;
+      goto done;
+    }
+
+    capture_mode = WAYTATOR_CAPTURE_SCREEN;
+  }
+
+  if (delay_text != NULL && !screenshot) {
+    g_application_command_line_printerr(command_line,
+                                        "--delay only works with --screenshot\n");
+    status = 1;
+    goto done;
+  }
+
+  if (notify && !screenshot) {
+    g_application_command_line_printerr(command_line,
+                                        "--notify only works with --screenshot\n");
+    status = 1;
+    goto done;
+  }
+
+  //no window at all here, one only appears if the notification is used to ask for it
+  if (notify) {
+    AppOverrides *overrides = g_new0(AppOverrides, 1);
+
+    overrides->app = g_object_ref(app);
+    overrides->close_on_copy = close_on_copy;
+    for (guint i = 0; i < G_N_ELEMENTS(app_shortcut_options); i++)
+      overrides->shortcuts[i] = g_strdup(shortcuts[i]);
+
+    waytator_screenshot_capture_background(app,
+                                           capture_mode,
+                                           capture_screen,
+                                           delay_seconds,
+                                           app_edit_screenshot,
+                                           overrides,
+                                           app_overrides_free);
+    goto done;
+  }
+
+  //a bare launch brings back whatever is already open, anything carrying an image gets a window to itself
+  window = screenshot || use_stdin || file != NULL
+         ? waytator_window_for_new_image(GTK_APPLICATION(app))
+         : app_get_or_create_window(ADW_APPLICATION(app));
+  app_apply_overrides(window, close_on_copy, shortcuts);
+
+  //the window shows itself once the capture is over
+  if (screenshot) {
+    waytator_window_start_capture(window, capture_mode, capture_screen, delay_seconds);
+    goto done;
   }
 
   if (use_stdin) {
@@ -276,6 +507,18 @@ app_command_line(GApplication            *app,
 done:
   g_strfreev(arguments);
   return status;
+}
+
+//only the instance that stays runs this, one that hands its command line over never sets up gtk.
+//loading a big icon theme like Papirus took most of a second at startup, Adwaita is always there with gtk
+static void
+app_startup(GApplication *app,
+            gpointer      user_data)
+{
+  (void) app;
+  (void) user_data;
+
+  g_object_set(gtk_settings_get_default(), "gtk-icon-theme-name", "Adwaita", NULL);
 }
 
 int
@@ -315,6 +558,7 @@ main(int   argc,
   gtk_application_set_accels_for_action(GTK_APPLICATION(app), "win.zoom-fit", (const char *[]) { "<Primary>0", NULL });
   gtk_application_set_accels_for_action(GTK_APPLICATION(app), "app.quit", (const char *[]) { "<Primary>q", NULL });
 
+  g_signal_connect(app, "startup", G_CALLBACK(app_startup), NULL);
   g_signal_connect(app, "activate", G_CALLBACK(app_activate), NULL);
   g_signal_connect(app, "open", G_CALLBACK(app_open), NULL);
   g_signal_connect(app, "command-line", G_CALLBACK(app_command_line), NULL);

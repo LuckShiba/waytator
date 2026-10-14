@@ -1,6 +1,7 @@
 #pragma once
 
 #include "waytator-document.h"
+#include "waytator-settings.h"
 #include "waytator-types.h"
 #include "waytator-window.h"
 
@@ -35,6 +36,12 @@ struct _WaytatorWindow {
   GtkWindowControls *start_window_controls;
   GListModel *start_window_controls_children;
   GtkWidget *open_actions;
+  GtkButton *capture_button;
+  GtkMenuButton *capture_delay_button;
+  GtkMenuButton *home_delay_button;
+  GtkLabel *home_delay_hint;
+  GtkLabel *capture_area_hint;
+  GtkLabel *open_hint;
   GtkWidget *file_group;
   GtkMenuButton *file_button;
   GtkLabel *file_label;
@@ -62,6 +69,9 @@ struct _WaytatorWindow {
   GtkButton *redo_button;
   GtkWidget *document_actions;
   GtkMenuButton *save_button;
+  GtkButton *save_as_button;
+  GMenu *save_menu;
+  char *save_menu_key;
   GtkStack *save_icon_stack;
   GtkImage *save_default_icon;
   GtkImage *save_working_icon;
@@ -120,6 +130,28 @@ struct _WaytatorWindow {
   gboolean close_after_copy;
   gboolean close_copy_pending;
   gboolean save_in_progress;
+  gboolean never_saved;
+  gboolean from_capture;
+  //set in dispose, for callbacks that hold a reference past it
+  gboolean disposed;
+  //a fresh capture is still being written to the screenshot folder
+  gboolean capture_storing;
+  //counts the images this window has shown, so late news about an old one can be told apart
+  guint image_serial;
+  GFile *adopt_file;
+  //adopt_file is an empty one made to claim a name in the screenshot folder
+  gboolean adopt_file_reserved;
+  WaytatorSettings settings;
+  WaytatorCaptureMode capture_mode;
+  //whether the capture under way hides waytator, it starts out as the preference and the box on the
+  //overlay changes only this
+  gboolean capture_hide;
+  gboolean capture_in_progress;
+  gboolean capture_window_was_visible;
+  gboolean capture_retake;
+  GPtrArray *capture_hidden_windows;
+  char *capture_output_name;
+  guint capture_delay_id;
   WaytatorAfterSave after_save;
   char *saved_path;
   guint ocr_generation;
@@ -162,10 +194,8 @@ struct _WaytatorWindow {
   int close_on_copy_override;
   GdkModifierType angle_snap_modifiers;
   gboolean allow_highlighter_overlap;
-  gboolean floating_controls_blur;
   gboolean auto_copy_latest_change;
   double window_background_opacity;
-  double floating_controls_opacity;
   GdkRGBA default_primary_color;
   GdkRGBA default_highlighter_color;
   GdkRGBA default_fill_color;

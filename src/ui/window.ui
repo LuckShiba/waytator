@@ -16,19 +16,6 @@
     </section>
   </menu>
 
-  <menu id="save_menu_model">
-    <section>
-      <item>
-        <attribute name="label">Save</attribute>
-        <attribute name="action">win.save</attribute>
-      </item>
-      <item>
-        <attribute name="label">Save as copy</attribute>
-        <attribute name="action">win.save-copy</attribute>
-      </item>
-    </section>
-  </menu>
-
   <menu id="file_menu_model">
     <section>
       <item>
@@ -66,37 +53,158 @@
                     <property name="orientation">vertical</property>
                     <property name="valign">center</property>
                     <property name="halign">center</property>
-                    <property name="spacing">14</property>
+                    <property name="spacing">2</property>
+                    <property name="width-request">320</property>
                     <style>
-                      <class name="canvas-empty"/>
+                      <class name="overlay-pill"/>
+                      <class name="home-actions"/>
                     </style>
 
                     <child>
-                      <object class="GtkImage">
-                        <property name="icon-name">image-x-generic-symbolic</property>
-                        <property name="pixel-size">40</property>
+                      <object class="GtkButton">
+                        <property name="action-name">win.capture-area</property>
                         <style>
-                          <class name="dim-label"/>
+                          <class name="home-action"/>
                         </style>
+                        <property name="child">
+                          <object class="GtkBox">
+                            <property name="spacing">12</property>
+
+                            <child>
+                              <object class="GtkImage">
+                                <property name="icon-name">camera-photo-symbolic</property>
+                              </object>
+                            </child>
+
+                            <child>
+                              <object class="GtkLabel">
+                                <property name="label">Capture</property>
+                                <property name="xalign">0</property>
+                                <property name="hexpand">True</property>
+                              </object>
+                            </child>
+
+                            <child>
+                              <object class="GtkLabel" id="capture_area_hint">
+                                <style>
+                                  <class name="home-hint"/>
+                                </style>
+                              </object>
+                            </child>
+                          </object>
+                        </property>
                       </object>
                     </child>
 
                     <child>
-                      <object class="GtkLabel">
-                        <property name="label">Open an image to begin</property>
+                      <object class="GtkMenuButton" id="home_delay_button">
                         <style>
-                          <class name="title-3"/>
+                          <class name="home-delay"/>
                         </style>
+                        <property name="child">
+                          <object class="GtkBox">
+                            <property name="spacing">12</property>
+
+                            <child>
+                              <object class="GtkImage">
+                                <property name="icon-name">alarm-symbolic</property>
+                              </object>
+                            </child>
+
+                            <child>
+                              <object class="GtkLabel">
+                                <property name="label">Delay</property>
+                                <property name="xalign">0</property>
+                                <property name="hexpand">True</property>
+                              </object>
+                            </child>
+
+                            <child>
+                              <object class="GtkLabel" id="home_delay_hint">
+                                <style>
+                                  <class name="home-hint"/>
+                                </style>
+                              </object>
+                            </child>
+                          </object>
+                        </property>
                       </object>
                     </child>
 
                     <child>
                       <object class="GtkButton">
-                        <property name="label">Open image</property>
+                        <property name="sensitive">False</property>
+                        <style>
+                          <class name="home-action"/>
+                        </style>
+                        <property name="child">
+                          <object class="GtkBox">
+                            <property name="spacing">12</property>
+
+                            <child>
+                              <object class="GtkImage">
+                                <property name="icon-name">media-record-symbolic</property>
+                              </object>
+                            </child>
+
+                            <child>
+                              <object class="GtkLabel">
+                                <property name="label">Record</property>
+                                <property name="xalign">0</property>
+                                <property name="hexpand">True</property>
+                              </object>
+                            </child>
+
+                            <child>
+                              <object class="GtkLabel">
+                                <property name="label">Soon</property>
+                                <style>
+                                  <class name="home-hint"/>
+                                </style>
+                              </object>
+                            </child>
+                          </object>
+                        </property>
+                      </object>
+                    </child>
+
+                    <child>
+                      <object class="GtkSeparator"/>
+                    </child>
+
+                    <child>
+                      <object class="GtkButton">
                         <property name="action-name">win.open</property>
                         <style>
-                          <class name="suggested-action"/>
+                          <class name="home-action"/>
                         </style>
+                        <property name="child">
+                          <object class="GtkBox">
+                            <property name="spacing">12</property>
+
+                            <child>
+                              <object class="GtkImage">
+                                <property name="icon-name">folder-open-symbolic</property>
+                              </object>
+                            </child>
+
+                            <child>
+                              <object class="GtkLabel">
+                                <property name="label">Open image</property>
+                                <property name="xalign">0</property>
+                                <property name="hexpand">True</property>
+                              </object>
+                            </child>
+
+                            <child>
+                              <object class="GtkLabel" id="open_hint">
+                                <style>
+                                  <class name="home-hint"/>
+                                </style>
+                              </object>
+                            </child>
+                          </object>
+                        </property>
                       </object>
                     </child>
                   </object>
@@ -221,6 +329,35 @@
                                 <property name="label">Open</property>
                                 <style>
                                   <class name="overlay-button"/>
+                                </style>
+                              </object>
+                            </child>
+
+                            <child>
+                              <object class="GtkSeparator">
+                                <property name="orientation">vertical</property>
+                                <property name="margin-start">4</property>
+                                <property name="margin-end">4</property>
+                              </object>
+                            </child>
+
+                            <child>
+                              <object class="GtkButton" id="capture_button">
+                                <property name="icon-name">camera-photo-symbolic</property>
+                                <property name="action-name">win.capture-area</property>
+                                <style>
+                                  <class name="overlay-button"/>
+                                  <class name="capture-button"/>
+                                </style>
+                              </object>
+                            </child>
+
+                            <child>
+                              <object class="GtkMenuButton" id="capture_delay_button">
+                                <property name="icon-name">pan-down-symbolic</property>
+                                <property name="tooltip-text">Delay</property>
+                                <style>
+                                  <class name="capture-delay-button"/>
                                 </style>
                               </object>
                             </child>
@@ -522,11 +659,19 @@
                             </style>
 
                             <child>
+                              <object class="GtkButton" id="save_as_button">
+                                <property name="tooltip-text">Save</property>
+                                <property name="icon-name">document-save-symbolic</property>
+                                <property name="sensitive">False</property>
+                                <property name="visible">False</property>
+                              </object>
+                            </child>
+
+                            <child>
                           <object class="GtkMenuButton" id="save_button">
                             <property name="tooltip-text">Save</property>
                             <property name="sensitive">False</property>
                             <property name="direction">down</property>
-                            <property name="menu-model">save_menu_model</property>
                             <property name="child">
                               <object class="GtkStack" id="save_icon_stack">
                                 <property name="transition-type">crossfade</property>

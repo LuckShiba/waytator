@@ -47,7 +47,7 @@ waytator_export_options(const char  *format,
 
   if (g_strcmp0(format, "png") == 0) {
     option_keys[0] = "compression";
-    option_values[0] = "9";
+    option_values[0] = WAYTATOR_PNG_COMPRESSION;
   }
 }
 

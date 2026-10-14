@@ -13,8 +13,48 @@
   background-color: transparent;
 }
 
-.canvas-empty {
-  padding: 48px;
+.home-actions {
+  padding: 6px;
+}
+
+.home-action {
+  min-height: 40px;
+  padding: 0 12px;
+  border-radius: 10px;
+  color: white;
+  font-weight: normal;
+  background: transparent;
+  background-color: transparent;
+  border-color: transparent;
+  box-shadow: none;
+}
+
+.home-action:hover {
+  background: alpha(white, 0.08);
+}
+
+.home-action:active {
+  background: alpha(white, 0.14);
+}
+
+.home-action:disabled {
+  filter: none;
+  opacity: 0.45;
+}
+
+.home-action image {
+  opacity: 0.85;
+}
+
+.home-hint {
+  color: alpha(white, 0.45);
+  font-size: 0.9em;
+}
+
+.home-actions separator {
+  min-height: 1px;
+  margin: 4px 8px;
+  background: alpha(white, 0.1);
 }
 
 .overlay-pill {
@@ -335,4 +375,113 @@
 .ocr-overlay-box label,
 .ocr-overlay-box image {
   color: transparent;
+}
+
+.open-group button.capture-button {
+  min-width: 32px;
+  padding: 0;
+}
+
+.open-group menubutton.capture-delay-button > button {
+  min-width: 20px;
+  min-height: 32px;
+  padding: 0 4px;
+  border-radius: 10px;
+  color: white;
+  background: transparent;
+  border-color: transparent;
+  box-shadow: none;
+}
+
+.open-group menubutton.capture-delay-button > button:hover,
+.open-group menubutton.capture-delay-button > button:checked {
+  background: alpha(white, 0.08);
+}
+
+/* a menu button shaped like the other home actions, its button is the part that shows */
+.home-actions menubutton.home-delay > button {
+  min-height: 40px;
+  padding: 0 12px;
+  border-radius: 10px;
+  color: white;
+  font-weight: normal;
+  background: transparent;
+  border-color: transparent;
+  box-shadow: none;
+}
+
+.home-actions menubutton.home-delay > button:hover,
+.home-actions menubutton.home-delay > button:checked {
+  background: alpha(white, 0.08);
+}
+
+.home-actions menubutton.home-delay image {
+  opacity: 0.85;
+}
+
+/* background and blur follow the floating controls settings, see the capture overlay */
+.capture-pill {
+  padding: 4px;
+  color: white;
+  background-image: none;
+  border: 1px solid alpha(white, 0.12);
+  border-radius: 14px;
+  box-shadow: 0 10px 32px alpha(black, 0.18);
+}
+
+.capture-pill togglebutton.flat {
+  min-height: 32px;
+  padding: 0 12px;
+  border-radius: 10px;
+  color: white;
+  background: transparent;
+  background-color: transparent;
+  border-color: transparent;
+  box-shadow: none;
+}
+
+.capture-pill togglebutton.flat:hover {
+  background: alpha(white, 0.08);
+}
+
+.capture-pill togglebutton.flat:checked,
+.capture-pill togglebutton.flat:checked:hover {
+  background: alpha(white, 0.16);
+  background-color: alpha(white, 0.16);
+  background-image: none;
+}
+
+.capture-pill button.capture-delay-choice {
+  min-height: 32px;
+  min-width: 0;
+  padding: 0 10px;
+  border-radius: 10px;
+  color: white;
+  background: transparent;
+  background-color: transparent;
+  border-color: transparent;
+  box-shadow: none;
+}
+
+.capture-pill button.capture-delay-choice:hover {
+  background: alpha(white, 0.08);
+}
+
+.capture-pill checkbutton {
+  min-height: 32px;
+  padding: 0 12px 0 8px;
+  border-radius: 10px;
+}
+
+.capture-pill checkbutton:hover {
+  background: alpha(white, 0.08);
+}
+
+.capture-pill checkbutton check:not(:checked) {
+  box-shadow: inset 0 0 0 2px alpha(white, 0.45);
+}
+
+.capture-hint {
+  margin: 0 10px 0 4px;
+  color: alpha(white, 0.7);
 }
