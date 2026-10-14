@@ -3851,6 +3851,104 @@ waytator_window_store_capture(WaytatorWindow *self,
   waytator_screenshot_store(texture, name, &self->settings, waytator_window_capture_stored, store);
 }
 
+static void waytator_window_begin_capture(WaytatorWindow     *self,
+                                          WaytatorCaptureMode mode,
+                                          const char         *output_name,
+                                          guint               delay_seconds);
+
+//a capture the portal turned down for want of a permission, kept to be taken again once it is given
+typedef struct {
+  WaytatorWindow *window;
+  WaytatorCaptureMode mode;
+  char *output_name;
+  //the window only exists for this capture, as with --screenshot, and has nothing else to show
+  gboolean temporary;
+} WaytatorCapturePermission;
+
+static void
+waytator_capture_permission_free(WaytatorCapturePermission *permission)
+{
+  g_object_unref(permission->window);
+  g_free(permission->output_name);
+  g_free(permission);
+}
+
+static void
+waytator_window_capture_allowed(GObject      *source_object,
+                                GAsyncResult *result,
+                                gpointer      user_data)
+{
+  WaytatorCapturePermission *permission = user_data;
+  WaytatorWindow *self = permission->window;
+  g_autoptr(GError) error = NULL;
+
+  (void) source_object;
+
+  if (self->disposed) {
+    waytator_capture_permission_free(permission);
+    return;
+  }
+
+  if (!waytator_capture_allow_finish(result, &error)) {
+    g_autofree char *message = g_strdup_printf("Could not allow screenshots: %s", error->message);
+
+    waytator_window_show_error(self, message);
+    waytator_capture_permission_free(permission);
+    return;
+  }
+
+  //back out of sight, so the capture goes the way it would have the first time
+  if (permission->temporary)
+    gtk_widget_set_visible(GTK_WIDGET(self), FALSE);
+  waytator_window_begin_capture(self, permission->mode, permission->output_name, 0);
+  waytator_capture_permission_free(permission);
+}
+
+static void
+waytator_window_capture_permission_response(AdwAlertDialog            *dialog,
+                                            const char                *response,
+                                            WaytatorCapturePermission *permission)
+{
+  (void) dialog;
+
+  if (g_strcmp0(response, "allow") == 0) {
+    waytator_capture_allow_async(waytator_window_capture_allowed, permission);
+    return;
+  }
+
+  if (permission->temporary && !permission->window->disposed)
+    gtk_window_destroy(GTK_WINDOW(permission->window));
+  waytator_capture_permission_free(permission);
+}
+
+static void
+waytator_window_ask_capture_permission(WaytatorWindow     *self,
+                                       WaytatorCaptureMode mode,
+                                       const char         *output_name,
+                                       gboolean            temporary)
+{
+  AdwDialog *dialog = adw_alert_dialog_new("Allow Screenshots?", NULL);
+  WaytatorCapturePermission *permission = g_new0(WaytatorCapturePermission, 1);
+
+  permission->window = g_object_ref(self);
+  permission->mode = mode;
+  permission->output_name = g_strdup(output_name);
+  permission->temporary = temporary;
+
+  adw_alert_dialog_set_body(ADW_ALERT_DIALOG(dialog),
+                            "Waytator needs a one-time permission to take screenshots. "
+                            "Once it is allowed, the screenshot is taken again.");
+  adw_alert_dialog_add_responses(ADW_ALERT_DIALOG(dialog), "cancel", "Not Now", "allow", "Allow", NULL);
+  adw_alert_dialog_set_response_appearance(ADW_ALERT_DIALOG(dialog), "allow", ADW_RESPONSE_SUGGESTED);
+  adw_alert_dialog_set_default_response(ADW_ALERT_DIALOG(dialog), "allow");
+  adw_alert_dialog_set_close_response(ADW_ALERT_DIALOG(dialog), "cancel");
+  //every way of closing the dialog ends in a response, which is what lets go of the permission
+  g_signal_connect(dialog, "response", G_CALLBACK(waytator_window_capture_permission_response), permission);
+
+  gtk_window_present(GTK_WINDOW(self));
+  adw_dialog_present(dialog, GTK_WIDGET(self));
+}
+
 static void
 waytator_window_finish_capture(WaytatorWindow *self,
                                GdkTexture     *texture,
@@ -3863,8 +3961,18 @@ waytator_window_finish_capture(WaytatorWindow *self,
     return;
 
   self->capture_in_progress = FALSE;
-  g_clear_pointer(&self->capture_output_name, g_free);
   waytator_window_restore_after_capture(self);
+
+  if (g_error_matches(error, G_IO_ERROR, G_IO_ERROR_PERMISSION_DENIED)) {
+    waytator_window_ask_capture_permission(self,
+                                           self->capture_mode,
+                                           self->capture_output_name,
+                                           !self->capture_window_was_visible && self->texture == NULL);
+    g_clear_pointer(&self->capture_output_name, g_free);
+    return;
+  }
+
+  g_clear_pointer(&self->capture_output_name, g_free);
 
   if (texture == NULL && error == NULL && !self->capture_window_was_visible && self->texture == NULL) {
     //cancelled, and the window only exists because the command line asked for a capture

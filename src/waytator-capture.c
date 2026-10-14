@@ -26,6 +26,10 @@
 
 #define WAYTATOR_CAPTURE_PORTAL_NAME "org.freedesktop.portal.Desktop"
 #define WAYTATOR_CAPTURE_PORTAL_PATH "/org/freedesktop/portal/desktop"
+//where the portal keeps what each app has been allowed, the screenshot permission is one table and entry in it
+#define WAYTATOR_CAPTURE_PERMISSION_STORE_NAME "org.freedesktop.impl.portal.PermissionStore"
+#define WAYTATOR_CAPTURE_PERMISSION_STORE_PATH "/org/freedesktop/impl/portal/PermissionStore"
+#define WAYTATOR_CAPTURE_PERMISSION_TABLE "screenshot"
 
 typedef enum {
   WAYTATOR_CAPTURE_BACKEND_AUTO,
@@ -1360,6 +1364,124 @@ waytator_capture_portal_load_ready(GObject      *source_object,
   waytator_capture_portal_unref(portal);
 }
 
+static const char *
+waytator_capture_app_id(void)
+{
+  GApplication *app = g_application_get_default();
+
+  return app != NULL ? g_application_get_application_id(app) : NULL;
+}
+
+//whether the permission store has screenshots allowed for waytator
+static gboolean
+waytator_capture_permission_granted(GVariant *permissions)
+{
+  g_autofree const char **values = NULL;
+  const char *app_id = waytator_capture_app_id();
+
+  if (app_id == NULL || !g_variant_lookup(permissions, app_id, "^a&s", &values))
+    return FALSE;
+
+  return values[0] != NULL && g_strcmp0(values[0], "yes") == 0;
+}
+
+static void
+waytator_capture_portal_permission_looked_up(GObject      *source_object,
+                                             GAsyncResult *result,
+                                             gpointer      user_data)
+{
+  WaytatorCapturePortal *portal = user_data;
+  g_autoptr(GError) error = NULL;
+  g_autoptr(GVariant) reply = g_dbus_connection_call_finish(G_DBUS_CONNECTION(source_object), result, &error);
+  g_autoptr(GVariant) permissions = NULL;
+  gboolean missing;
+
+  //a table that was never written to is not there at all, which means nothing was ever allowed
+  if (reply != NULL) {
+    g_variant_get(reply, "(@a{sas}v)", &permissions, NULL);
+    missing = !waytator_capture_permission_granted(permissions);
+  } else {
+    missing = g_dbus_error_is_remote_error(error)
+           && g_strcmp0(g_dbus_error_get_remote_error(error), "org.freedesktop.portal.Error.NotFound") == 0;
+  }
+
+  if (missing)
+    waytator_capture_portal_complete(portal,
+                                     NULL,
+                                     g_error_new_literal(G_IO_ERROR,
+                                                         G_IO_ERROR_PERMISSION_DENIED,
+                                                         "Waytator needs a one-time permission to take screenshots."));
+  else
+    waytator_capture_portal_complete(portal,
+                                     NULL,
+                                     g_error_new_literal(G_IO_ERROR,
+                                                         G_IO_ERROR_FAILED,
+                                                         "The screenshot portal could not take a screenshot."));
+
+  waytator_capture_portal_unref(portal);
+}
+
+static void
+waytator_capture_allowed(GObject      *source_object,
+                         GAsyncResult *result,
+                         gpointer      user_data)
+{
+  g_autoptr(GTask) task = user_data;
+  GError *error = NULL;
+  g_autoptr(GVariant) reply = g_dbus_connection_call_finish(G_DBUS_CONNECTION(source_object), result, &error);
+
+  if (reply == NULL) {
+    g_dbus_error_strip_remote_error(error);
+    g_task_return_error(task, error);
+    return;
+  }
+
+  g_task_return_boolean(task, TRUE);
+}
+
+//the same thing as answering yes when the portal asks. on GNOME the portal can only ask while one of our
+//windows is focused, which none is during a capture, so this is the way to answer it
+void
+waytator_capture_allow_async(GAsyncReadyCallback callback,
+                             gpointer            user_data)
+{
+  GApplication *app = g_application_get_default();
+  GDBusConnection *connection = app != NULL ? g_application_get_dbus_connection(app) : NULL;
+  GTask *task = g_task_new(NULL, NULL, callback, user_data);
+  const char *yes[] = { "yes", NULL };
+
+  if (connection == NULL || waytator_capture_app_id() == NULL) {
+    g_task_return_new_error(task, G_IO_ERROR, G_IO_ERROR_NOT_CONNECTED, "There is no session bus to ask on");
+    g_object_unref(task);
+    return;
+  }
+
+  g_dbus_connection_call(connection,
+                         WAYTATOR_CAPTURE_PERMISSION_STORE_NAME,
+                         WAYTATOR_CAPTURE_PERMISSION_STORE_PATH,
+                         WAYTATOR_CAPTURE_PERMISSION_STORE_NAME,
+                         "SetPermission",
+                         g_variant_new("(sbss^as)",
+                                       WAYTATOR_CAPTURE_PERMISSION_TABLE,
+                                       TRUE,
+                                       WAYTATOR_CAPTURE_PERMISSION_TABLE,
+                                       waytator_capture_app_id(),
+                                       yes),
+                         NULL,
+                         G_DBUS_CALL_FLAGS_NONE,
+                         -1,
+                         NULL,
+                         waytator_capture_allowed,
+                         task);
+}
+
+gboolean
+waytator_capture_allow_finish(GAsyncResult *result,
+                              GError      **error)
+{
+  return g_task_propagate_boolean(G_TASK(result), error);
+}
+
 static void
 waytator_capture_portal_handle_response(GDBusConnection *connection,
                                         const char      *sender_name,
@@ -1409,13 +1531,20 @@ waytator_capture_portal_handle_response(GDBusConnection *connection,
     return;
   }
 
+  //the answer says nothing more, the permission store tells whether a missing permission is why
   if (response != 0) {
-    waytator_capture_portal_complete(portal,
-                                     NULL,
-                                     g_error_new(G_IO_ERROR,
-                                                 G_IO_ERROR_FAILED,
-                                                 "The screenshot portal could not take a screenshot (response %u)",
-                                                 response));
+    g_dbus_connection_call(portal->connection,
+                           WAYTATOR_CAPTURE_PERMISSION_STORE_NAME,
+                           WAYTATOR_CAPTURE_PERMISSION_STORE_PATH,
+                           WAYTATOR_CAPTURE_PERMISSION_STORE_NAME,
+                           "Lookup",
+                           g_variant_new("(ss)", WAYTATOR_CAPTURE_PERMISSION_TABLE, WAYTATOR_CAPTURE_PERMISSION_TABLE),
+                           G_VARIANT_TYPE("(a{sas}v)"),
+                           G_DBUS_CALL_FLAGS_NONE,
+                           -1,
+                           NULL,
+                           waytator_capture_portal_permission_looked_up,
+                           waytator_capture_portal_ref(portal));
     return;
   }
 

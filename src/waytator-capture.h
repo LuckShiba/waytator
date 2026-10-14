@@ -18,6 +18,12 @@ void waytator_capture_output_free(WaytatorCaptureOutput *output);
 void waytator_capture_outputs_async(GCancellable       *cancellable,
                                     GAsyncReadyCallback callback,
                                     gpointer            user_data);
-//a GPtrArray of WaytatorCaptureOutput, one per monitor, free with g_ptr_array_unref
+//a GPtrArray of WaytatorCaptureOutput, one per monitor, free with g_ptr_array_unref.
+//fails with G_IO_ERROR_PERMISSION_DENIED when the portal needs a permission waytator_capture_allow_async gives
 GPtrArray *waytator_capture_outputs_finish(GAsyncResult *result,
                                            GError      **error);
+//allows waytator to take screenshots through the portal from now on, for when someone asked for that
+void waytator_capture_allow_async(GAsyncReadyCallback callback,
+                                  gpointer            user_data);
+gboolean waytator_capture_allow_finish(GAsyncResult *result,
+                                       GError      **error);

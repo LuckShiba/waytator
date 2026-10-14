@@ -34,6 +34,8 @@ typedef struct {
   gboolean copied;
   GDBusConnection *connection;
   guint32 notification_id;
+  //the notification on screen asks for the permission the portal needs, rather than show a capture
+  gboolean asking_permission;
   guint action_subscription;
   guint closed_subscription;
   guint wait_timeout_id;
@@ -437,6 +439,53 @@ waytator_screenshot_opened(GObject      *source_object,
   waytator_screenshot_wait_over(shot);
 }
 
+static void waytator_screenshot_take_after(WaytatorScreenshot *shot,
+                                           gboolean            wait,
+                                           guint               delay_seconds);
+static void waytator_screenshot_failed(WaytatorScreenshot *shot,
+                                       const GError       *error);
+
+static void
+waytator_screenshot_allowed(GObject      *source_object,
+                            GAsyncResult *result,
+                            gpointer      user_data)
+{
+  WaytatorScreenshot *shot = user_data;
+  g_autoptr(GError) error = NULL;
+
+  (void) source_object;
+
+  if (!waytator_capture_allow_finish(result, &error)) {
+    g_prefix_error(&error, "Could not allow screenshots: ");
+    waytator_screenshot_failed(shot, error);
+    return;
+  }
+
+  //from the start, once the notification that asked has left the screen
+  shot->retake = FALSE;
+  waytator_screenshot_take_after(shot, TRUE, 0);
+}
+
+static void
+waytator_screenshot_answer_permission(WaytatorScreenshot *shot,
+                                      gboolean            allow)
+{
+  g_dbus_connection_signal_unsubscribe(shot->connection, shot->action_subscription);
+  g_dbus_connection_signal_unsubscribe(shot->connection, shot->closed_subscription);
+  shot->action_subscription = 0;
+  shot->closed_subscription = 0;
+  if (shot->wait_timeout_id != 0)
+    g_source_remove(shot->wait_timeout_id);
+  shot->wait_timeout_id = 0;
+  shot->notification_id = 0;
+  shot->asking_permission = FALSE;
+
+  if (allow)
+    waytator_capture_allow_async(waytator_screenshot_allowed, shot);
+  else
+    waytator_screenshot_wait_over(shot);
+}
+
 static void
 waytator_screenshot_action_invoked(GDBusConnection *connection,
                                    const char      *sender_name,
@@ -463,6 +512,11 @@ waytator_screenshot_action_invoked(GDBusConnection *connection,
   g_variant_get(parameters, "(u&s)", &id, &action);
   if (id != shot->notification_id)
     return;
+
+  if (shot->asking_permission) {
+    waytator_screenshot_answer_permission(shot, g_strcmp0(action, "allow") == 0 || g_strcmp0(action, "default") == 0);
+    return;
+  }
 
   if (g_strcmp0(action, "open") == 0 && shot->file != NULL) {
     g_autofree char *uri = g_file_get_uri(shot->file);
@@ -519,10 +573,12 @@ waytator_screenshot_notified(GObject      *source_object,
   g_autoptr(GError) error = NULL;
   g_autoptr(GVariant) reply = g_dbus_connection_call_finish(G_DBUS_CONNECTION(source_object), result, &error);
 
-  //with nothing to show a notification the editor is the only way left to hand the capture over
+  //with nothing to show a notification the editor is the only way left to hand the capture over,
+  //and there is no other way to ask for the permission
   if (reply == NULL) {
     g_debug("Could not show a notification: %s", error->message);
-    waytator_screenshot_edit(shot);
+    if (!shot->asking_permission)
+      waytator_screenshot_edit(shot);
     waytator_screenshot_free(shot);
     return;
   }
@@ -553,6 +609,12 @@ waytator_screenshot_notification_body(WaytatorScreenshot *shot)
        ? g_strdup("Copied to the clipboard.")
        : g_strdup("Due to your settings, this screenshot is neither saved nor copied. Choose Edit to keep it.");
 }
+
+static void waytator_screenshot_send(WaytatorScreenshot *shot,
+                                     const char         *summary,
+                                     const char         *body,
+                                     GVariantBuilder    *actions,
+                                     GVariantBuilder    *hints);
 
 static void
 waytator_screenshot_notify(WaytatorScreenshot *shot)
@@ -588,6 +650,21 @@ waytator_screenshot_notify(WaytatorScreenshot *shot)
       g_variant_builder_add(&hints, "{sv}", "image-path", g_variant_new_string(path));
   }
 
+  waytator_screenshot_send(shot,
+                           shot->save_error != NULL ? "Screenshot not saved" : "Screenshot captured",
+                           body,
+                           &actions,
+                           &hints);
+}
+
+//shows the notification and listens to it, until it is closed or the wait runs out
+static void
+waytator_screenshot_send(WaytatorScreenshot *shot,
+                         const char         *summary,
+                         const char         *body,
+                         GVariantBuilder    *actions,
+                         GVariantBuilder    *hints)
+{
   //listening before asking, a quick click could otherwise get here first
   shot->action_subscription = g_dbus_connection_signal_subscribe(shot->connection,
                                                                  WAYTATOR_NOTIFICATIONS_NAME,
@@ -619,10 +696,10 @@ waytator_screenshot_notify(WaytatorScreenshot *shot)
                                        "Waytator",
                                        (guint32) 0,
                                        g_application_get_application_id(shot->app),
-                                       shot->save_error != NULL ? "Screenshot not saved" : "Screenshot captured",
+                                       summary,
                                        body,
-                                       &actions,
-                                       &hints,
+                                       actions,
+                                       hints,
                                        -1),
                          G_VARIANT_TYPE("(u)"),
                          G_DBUS_CALL_FLAGS_NONE,
@@ -662,11 +739,43 @@ waytator_screenshot_captured(WaytatorScreenshot *shot,
   waytator_screenshot_store(texture, shot->name, &shot->settings, waytator_screenshot_notify_stored, shot);
 }
 
+//the portal turned the capture down until it is allowed to take screenshots, which a click on this gives
+static void
+waytator_screenshot_ask_permission(WaytatorScreenshot *shot)
+{
+  GVariantBuilder actions;
+  GVariantBuilder hints;
+
+  waytator_window_restore_all(shot->hidden);
+  shot->asking_permission = TRUE;
+
+  g_variant_builder_init(&actions, G_VARIANT_TYPE("as"));
+  g_variant_builder_add(&actions, "s", "default");
+  g_variant_builder_add(&actions, "s", "Allow");
+  g_variant_builder_add(&actions, "s", "allow");
+  g_variant_builder_add(&actions, "s", "Allow");
+
+  g_variant_builder_init(&hints, G_VARIANT_TYPE("a{sv}"));
+  g_variant_builder_add(&hints, "{sv}", "desktop-entry", g_variant_new_string(g_application_get_application_id(shot->app)));
+
+  waytator_screenshot_send(shot,
+                           "Allow Screenshots?",
+                           "Waytator needs a one-time permission to take screenshots. "
+                           "Choose Allow and the screenshot is taken again.",
+                           &actions,
+                           &hints);
+}
+
 //nothing was captured, so there is nothing to offer but the reason
 static void
 waytator_screenshot_failed(WaytatorScreenshot *shot,
                            const GError       *error)
 {
+  if (shot->connection != NULL && g_error_matches(error, G_IO_ERROR, G_IO_ERROR_PERMISSION_DENIED)) {
+    waytator_screenshot_ask_permission(shot);
+    return;
+  }
+
   g_printerr("Could not take a screenshot: %s\n", error->message);
   if (shot->connection != NULL)
     g_dbus_connection_call(shot->connection,
