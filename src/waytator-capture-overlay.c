@@ -160,12 +160,24 @@ waytator_capture_overlay_free(gpointer user_data)
 static gboolean
 waytator_capture_overlay_close(WaytatorCaptureOverlay *overlay)
 {
+  GtkWindow *focused = NULL;
+
   if (overlay->closed)
     return FALSE;
 
   overlay->closed = TRUE;
-  for (guint i = 0; i < overlay->windows->len; i++)
-    gtk_window_destroy(g_ptr_array_index(overlay->windows, i));
+  //the focused window goes last. gone first, the compositor hands focus and a tablet's pad to the next one, which
+  //is already gone by the time that arrives, and GTK crashes on a pad event with no window to go to
+  for (guint i = 0; i < overlay->windows->len; i++) {
+    GtkWindow *window = g_ptr_array_index(overlay->windows, i);
+
+    if (focused == NULL && gtk_window_is_active(window))
+      focused = window;
+    else
+      gtk_window_destroy(window);
+  }
+  if (focused != NULL)
+    gtk_window_destroy(focused);
 
   //this usually runs inside a handler of one of the views, which still points at the overlay
   g_idle_add(waytator_capture_overlay_free, overlay);
