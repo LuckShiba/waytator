@@ -23,6 +23,47 @@ Get it from the AUR:
 yay -S waytator
 ```
 
+### Nix
+
+Waytator is in nixpkgs, though it can lag a release or two behind:
+
+```bash
+nix run nixpkgs#waytator
+```
+
+To get new releases the day they're out, use this repo's flake:
+
+```bash
+nix run github:faetalize/waytator/stable
+```
+
+To follow `master` instead:
+
+```bash
+nix run github:faetalize/waytator
+```
+
+On NixOS, add it as a flake input:
+
+```nix
+# flake.nix
+inputs.waytator = {
+  url = "github:faetalize/waytator/stable";
+  inputs.nixpkgs.follows = "nixpkgs";
+};
+```
+
+Then add the package to your system:
+
+```nix
+# configuration.nix
+environment.systemPackages = [
+  inputs.waytator.packages.${pkgs.stdenv.hostPlatform.system}.default
+];
+```
+
+OCR is included. For a smaller install without it, use `.default.override { withOcr = false; }` instead of `.default`.
+
 ### From source
 
 1) Required build dependencies:
