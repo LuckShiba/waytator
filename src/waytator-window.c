@@ -1537,8 +1537,8 @@ waytator_window_new_screenshots_page(WaytatorWindow *self)
   adw_preferences_page_set_title(page, "Screenshots");
   adw_preferences_page_set_icon_name(page, "camera-photo-symbolic");
   adw_preferences_group_set_description(group,
-                                        "With --screenshot --notify a screenshot is saved as soon as it is taken, "
-                                        "in the editor when you save it.");
+                                        "Every screenshot is saved as soon as it is taken, saving your edits updates that file. "
+                                        "Without a folder you choose where each one goes.");
 
   adw_preferences_row_set_title(ADW_PREFERENCES_ROW(folder_row), "Save folder");
   gtk_widget_set_valign(choose_button, GTK_ALIGN_CENTER);
