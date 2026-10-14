@@ -1,4 +1,5 @@
 #include "waytator-capture-overlay.h"
+#include "waytator-window.h"
 
 #include <gtk4-layer-shell.h>
 #include <math.h>
@@ -569,7 +570,6 @@ static void
 waytator_capture_overlay_build_pill(WaytatorCaptureView *view)
 {
   view->pill = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 4);
-  gtk_widget_add_css_class(view->pill, "overlay-pill");
   gtk_widget_add_css_class(view->pill, "capture-pill");
   gtk_widget_set_halign(view->pill, GTK_ALIGN_CENTER);
   gtk_widget_set_valign(view->pill, GTK_ALIGN_END);
@@ -707,6 +707,8 @@ waytator_capture_overlay_show(GPtrArray                           *outputs,
                               gpointer                             user_data)
 {
   WaytatorCaptureOverlay *overlay = g_new0(WaytatorCaptureOverlay, 1);
+
+  waytator_window_ensure_css_loaded();
 
   overlay->outputs = outputs;
   overlay->windows = g_ptr_array_new();

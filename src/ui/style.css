@@ -377,8 +377,16 @@
   padding: 0;
 }
 
+/* not tied to the floating controls settings, it has to stand out over any frame, also without a window */
 .capture-pill {
   padding: 4px;
+  color: white;
+  background: alpha(black, 0.6);
+  background-color: alpha(black, 0.6);
+  background-image: none;
+  border: 1px solid alpha(white, 0.12);
+  border-radius: 14px;
+  box-shadow: 0 10px 32px alpha(black, 0.18);
 }
 
 .capture-pill togglebutton.flat {

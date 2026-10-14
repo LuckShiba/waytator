@@ -4337,7 +4337,8 @@ waytator_window_ensure_icons_registered(void)
   }
 }
 
-static void
+//the capture overlay can show without any window, as with --notify
+void
 waytator_window_ensure_css_loaded(void)
 {
   static gboolean css_loaded = FALSE;
