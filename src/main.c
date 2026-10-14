@@ -315,9 +315,16 @@ app_command_line(GApplication            *app,
 
   //naming a screen is asking for that screen, there is no need to say screen twice
   if (capture_screen != NULL) {
-    if (!screenshot || capture_area_given) {
+    if (!screenshot) {
       g_application_command_line_printerr(command_line,
-                                          "--screen only applies to --screenshot, and not to an area\n");
+                                          "--screen only works with --screenshot\n");
+      status = 1;
+      goto done;
+    }
+
+    if (capture_area_given) {
+      g_application_command_line_printerr(command_line,
+                                          "--screen captures a whole screen, remove \"area\" from your command\n");
       status = 1;
       goto done;
     }
@@ -327,7 +334,7 @@ app_command_line(GApplication            *app,
 
   if (notify && !screenshot) {
     g_application_command_line_printerr(command_line,
-                                        "--notify only applies to --screenshot\n");
+                                        "--notify only works with --screenshot\n");
     status = 1;
     goto done;
   }
