@@ -1386,7 +1386,10 @@ waytator_window_update_window_background(WaytatorWindow *self)
 
   // printf would use the locale's decimal separator, which is not valid css
   g_ascii_formatd(opacity, sizeof opacity, "%.1f", self->window_background_opacity);
-  css = g_strdup_printf("window.waytator-window { background: alpha(@window_bg_color, %s); background-color: alpha(@window_bg_color, %s); }",
+  //gtk asks the compositor to blur only where a backdrop-filter blurs the desktop,
+  //so without one here a blur on the controls shrinks the compositor's blur down to them
+  css = g_strdup_printf("window.waytator-window { background: alpha(@window_bg_color, %s); background-color: alpha(@window_bg_color, %s);"
+                        " backdrop-filter: blur(18px); }",
                         opacity,
                         opacity);
   gtk_css_provider_load_from_string(self->window_css_provider, css);
