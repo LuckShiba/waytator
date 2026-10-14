@@ -32,6 +32,8 @@ typedef struct {
   GFile *file;
   char *save_error;
   gboolean copied;
+  //GNOME's screenshot UI took it, and saved, copied and announced it itself
+  gboolean by_gnome;
   GDBusConnection *connection;
   guint32 notification_id;
   //the notification on screen asks for the permission the portal needs, rather than show a capture
@@ -592,6 +594,10 @@ waytator_screenshot_notified(GObject      *source_object,
 static char *
 waytator_screenshot_notification_body(WaytatorScreenshot *shot)
 {
+  //GNOME's own notification already says where it went
+  if (shot->by_gnome)
+    return g_strdup("Choose Edit to annotate it in Waytator.");
+
   if (shot->save_error != NULL)
     return shot->copied
          ? g_strdup_printf("%s It was copied to the clipboard.", shot->save_error)
@@ -872,13 +878,46 @@ waytator_screenshot_outputs_ready(GObject      *source_object,
   waytator_screenshot_failed(shot, error);
 }
 
+static void
+waytator_screenshot_gnome_ready(GObject      *source_object,
+                                GAsyncResult *result,
+                                gpointer      user_data)
+{
+  WaytatorScreenshot *shot = user_data;
+  g_autoptr(GError) error = NULL;
+  g_autoptr(GFile) file = NULL;
+  g_autoptr(GdkTexture) texture = waytator_capture_gnome_ui_finish(result, &file, &error);
+
+  (void) source_object;
+
+  if (texture == NULL) {
+    if (g_error_matches(error, G_IO_ERROR, G_IO_ERROR_CANCELLED))
+      waytator_screenshot_free(shot);
+    else
+      waytator_screenshot_failed(shot, error);
+    return;
+  }
+
+  //GNOME saved and copied it, so all that is left is the way to the editor
+  waytator_window_restore_all(shot->hidden);
+  shot->by_gnome = TRUE;
+  shot->texture = g_object_ref(texture);
+  shot->name = g_file_get_basename(file);
+  shot->file = g_steal_pointer(&file);
+  shot->copied = TRUE;
+  waytator_screenshot_notify(shot);
+}
+
 static gboolean
 waytator_screenshot_take(gpointer user_data)
 {
   WaytatorScreenshot *shot = user_data;
 
   shot->delay_id = 0;
-  waytator_capture_outputs_async(NULL, waytator_screenshot_outputs_ready, shot);
+  if (waytator_capture_uses_gnome_ui())
+    waytator_capture_gnome_ui_async(waytator_screenshot_gnome_ready, shot);
+  else
+    waytator_capture_outputs_async(NULL, waytator_screenshot_outputs_ready, shot);
   return G_SOURCE_REMOVE;
 }
 

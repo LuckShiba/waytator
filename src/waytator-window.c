@@ -1524,8 +1524,17 @@ waytator_window_new_screenshots_page(WaytatorWindow *self)
 
   adw_preferences_page_set_title(page, "Screenshots");
   adw_preferences_page_set_icon_name(page, "camera-photo-symbolic");
-  adw_preferences_group_set_description(group,
-                                        "These settings apply to screenshots taken by waytator");
+  //GNOME's screenshot UI saves and copies on its own, so the folder and the copy are not waytator's to decide there
+  if (waytator_capture_uses_gnome_ui()) {
+    adw_preferences_group_set_description(group,
+                                          "On GNOME, screenshots are taken with GNOME's screenshot tool, "
+                                          "which saves and copies them itself");
+    gtk_widget_set_sensitive(GTK_WIDGET(folder_row), FALSE);
+    gtk_widget_set_sensitive(GTK_WIDGET(copy_row), FALSE);
+  } else {
+    adw_preferences_group_set_description(group,
+                                          "These settings apply to screenshots taken by waytator");
+  }
 
   adw_preferences_row_set_title(ADW_PREFERENCES_ROW(folder_row), "Save folder");
   gtk_widget_set_valign(choose_button, GTK_ALIGN_CENTER);
@@ -3949,9 +3958,11 @@ waytator_window_ask_capture_permission(WaytatorWindow     *self,
   adw_dialog_present(dialog, GTK_WIDGET(self));
 }
 
+//file is set when GNOME's screenshot UI took the capture and already saved and copied it
 static void
 waytator_window_finish_capture(WaytatorWindow *self,
                                GdkTexture     *texture,
+                               GFile          *file,
                                const GError   *error)
 {
   WaytatorWindow *target = self;
@@ -3981,14 +3992,21 @@ waytator_window_finish_capture(WaytatorWindow *self,
   }
 
   if (texture != NULL) {
-    g_autofree char *name = waytator_screenshot_make_name();
+    g_autofree char *name = file != NULL ? g_file_get_basename(file) : waytator_screenshot_make_name();
 
     if (self->texture != NULL)
       target = waytator_window_for_new_image(gtk_window_get_application(GTK_WINDOW(self)));
 
-    waytator_window_open_capture(target, texture, name, TRUE);
+    if (file != NULL) {
+      //GNOME saved and copied it already, saving edits updates its file
+      waytator_window_set_image(target, texture, file, name);
+      waytator_window_reset_save_button(target);
+    } else {
+      waytator_window_open_capture(target, texture, name, TRUE);
+    }
     gtk_window_present(GTK_WINDOW(target));
-    waytator_window_store_capture(target, texture, name);
+    if (file == NULL)
+      waytator_window_store_capture(target, texture, name);
   }
 
   if (error != NULL) {
@@ -4006,7 +4024,7 @@ waytator_window_capture_overlay_done(GdkTexture         *texture,
 
   (void) mode;
 
-  waytator_window_finish_capture(self, texture, NULL);
+  waytator_window_finish_capture(self, texture, NULL, NULL);
 }
 
 static void waytator_window_capture_retake(gboolean            hide_waytator,
@@ -4033,6 +4051,7 @@ waytator_window_capture_ready(GObject      *source_object,
     //the portal reports a declined permission prompt as a cancellation
     waytator_window_finish_capture(self,
                                    NULL,
+                                   NULL,
                                    g_error_matches(error, G_IO_ERROR, G_IO_ERROR_CANCELLED) ? NULL : error);
     return;
   }
@@ -4041,14 +4060,14 @@ waytator_window_capture_ready(GObject      *source_object,
   if (!self->capture_retake)
     output = waytator_capture_pick_output(outputs, self->capture_mode, self->capture_output_name, &error);
   if (error != NULL) {
-    waytator_window_finish_capture(self, NULL, error);
+    waytator_window_finish_capture(self, NULL, NULL, error);
     return;
   }
 
   if (output != NULL) {
     g_autoptr(GdkTexture) texture = waytator_capture_output_create_texture(output);
 
-    waytator_window_finish_capture(self, texture, NULL);
+    waytator_window_finish_capture(self, texture, NULL, NULL);
     return;
   }
 
@@ -4069,7 +4088,29 @@ waytator_window_capture_ready(GObject      *source_object,
                       G_IO_ERROR,
                       G_IO_ERROR_FAILED,
                       "Could not match the capture to a screen");
-  waytator_window_finish_capture(self, NULL, error);
+  waytator_window_finish_capture(self, NULL, NULL, error);
+}
+
+static void
+waytator_window_gnome_capture_ready(GObject      *source_object,
+                                    GAsyncResult *result,
+                                    gpointer      user_data)
+{
+  g_autoptr(WaytatorWindow) self = WAYTATOR_WINDOW(user_data);
+  g_autoptr(GError) error = NULL;
+  g_autoptr(GFile) file = NULL;
+  g_autoptr(GdkTexture) texture = waytator_capture_gnome_ui_finish(result, &file, &error);
+
+  (void) source_object;
+
+  if (self->disposed)
+    return;
+
+  //closing GNOME's UI without taking anything is a cancel like any other
+  waytator_window_finish_capture(self,
+                                 texture,
+                                 file,
+                                 g_error_matches(error, G_IO_ERROR, G_IO_ERROR_CANCELLED) ? NULL : error);
 }
 
 static gboolean
@@ -4078,7 +4119,10 @@ waytator_window_capture_after_wait(gpointer user_data)
   WaytatorWindow *self = WAYTATOR_WINDOW(user_data);
 
   self->capture_delay_id = 0;
-  waytator_capture_outputs_async(NULL, waytator_window_capture_ready, g_object_ref(self));
+  if (waytator_capture_uses_gnome_ui())
+    waytator_capture_gnome_ui_async(waytator_window_gnome_capture_ready, g_object_ref(self));
+  else
+    waytator_capture_outputs_async(NULL, waytator_window_capture_ready, g_object_ref(self));
   return G_SOURCE_REMOVE;
 }
 

@@ -2,6 +2,7 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
+#include "waytator-capture.h"
 #include "waytator-screenshot.h"
 #include "waytator-window.h"
 
@@ -124,7 +125,7 @@ app_open(GApplication  *app,
   "  --screenshot [area|screen]              Capture the screen and open the result,\n" \
   "                                          an area unless told otherwise\n" \
   "  --screen NAME                           With --screenshot: capture this screen,\n" \
-  "                                          e.g. DP-1\n" \
+  "                                          e.g. DP-1. Doesn't support GNOME\n" \
   "  --notify                                With --screenshot: save, copy and notify\n" \
   "                                          instead of opening the editor\n" \
   "  --delay SECONDS                         With --screenshot: wait this many whole\n" \
@@ -413,6 +414,13 @@ app_command_line(GApplication            *app,
     if (!screenshot) {
       g_application_command_line_printerr(command_line,
                                           "--screen only works with --screenshot\n");
+      status = 1;
+      goto done;
+    }
+
+    //GNOME's screenshot UI is where the screen is picked there, and nothing can pick it beforehand
+    if (waytator_capture_uses_gnome_ui()) {
+      g_application_command_line_printerr(command_line, "--screen doesn't support GNOME\n");
       status = 1;
       goto done;
     }

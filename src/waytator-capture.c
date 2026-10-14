@@ -35,6 +35,7 @@ typedef enum {
   WAYTATOR_CAPTURE_BACKEND_AUTO,
   WAYTATOR_CAPTURE_BACKEND_SCREENCOPY,
   WAYTATOR_CAPTURE_BACKEND_PORTAL,
+  WAYTATOR_CAPTURE_BACKEND_GNOME,
 } WaytatorCaptureBackend;
 
 typedef struct _WaytatorCaptureScreencopy WaytatorCaptureScreencopy;
@@ -91,7 +92,23 @@ typedef struct {
   GSource *timeout_source;
   gboolean responded;
   gboolean completed;
+  //the desktop's own screenshot UI is shown, and the answer is the one image taken there rather than every screen
+  gboolean interactive;
 } WaytatorCapturePortal;
+
+//what the desktop's own screenshot UI took, and the file it saved it to
+typedef struct {
+  GdkTexture *texture;
+  GFile *file;
+} WaytatorCaptureShot;
+
+static void
+waytator_capture_shot_free(WaytatorCaptureShot *shot)
+{
+  g_clear_object(&shot->texture);
+  g_clear_object(&shot->file);
+  g_free(shot);
+}
 
 void
 waytator_capture_output_free(WaytatorCaptureOutput *output)
@@ -1127,13 +1144,17 @@ waytator_capture_portal_clear_source(GSource **source)
 //takes the outputs and the error, whichever one there is. only the first call counts
 static void
 waytator_capture_portal_complete(WaytatorCapturePortal *portal,
-                                 GPtrArray             *outputs,
+                                 gpointer               result,
                                  GError                *error)
 {
+  const GDestroyNotify free_result = portal->interactive
+                                   ? (GDestroyNotify) waytator_capture_shot_free
+                                   : (GDestroyNotify) g_ptr_array_unref;
   g_autoptr(GTask) task = NULL;
 
   if (portal->completed) {
-    g_clear_pointer(&outputs, g_ptr_array_unref);
+    if (result != NULL)
+      free_result(result);
     g_clear_error(&error);
     return;
   }
@@ -1147,7 +1168,7 @@ waytator_capture_portal_complete(WaytatorCapturePortal *portal,
   if (error != NULL)
     g_task_return_error(task, error);
   else
-    g_task_return_pointer(task, outputs, (GDestroyNotify) g_ptr_array_unref);
+    g_task_return_pointer(task, result, free_result);
 }
 
 static void
@@ -1341,6 +1362,47 @@ waytator_capture_portal_load_thread(GTask        *task,
   g_task_return_pointer(task, surface, (GDestroyNotify) cairo_surface_destroy);
 }
 
+//the file is the screenshot the desktop saved for the user, so it stays
+static void
+waytator_capture_portal_load_shot_thread(GTask        *task,
+                                         gpointer      source_object,
+                                         gpointer      task_data,
+                                         GCancellable *cancellable)
+{
+  WaytatorCaptureShot *shot = g_new0(WaytatorCaptureShot, 1);
+  g_autoptr(GError) error = NULL;
+
+  (void) source_object;
+  (void) cancellable;
+
+  shot->file = g_file_new_for_uri(task_data);
+  shot->texture = gdk_texture_new_from_file(shot->file, &error);
+  if (shot->texture == NULL) {
+    waytator_capture_shot_free(shot);
+    g_prefix_error(&error, "Could not load the screenshot: ");
+    g_task_return_error(task, g_steal_pointer(&error));
+    return;
+  }
+
+  g_task_return_pointer(task, shot, (GDestroyNotify) waytator_capture_shot_free);
+}
+
+static void
+waytator_capture_portal_shot_ready(GObject      *source_object,
+                                   GAsyncResult *result,
+                                   gpointer      user_data)
+{
+  WaytatorCapturePortal *portal = user_data;
+  g_autoptr(GError) error = NULL;
+  WaytatorCaptureShot *shot;
+
+  (void) source_object;
+
+  shot = g_task_propagate_pointer(G_TASK(result), &error);
+  waytator_capture_portal_complete(portal, shot, shot == NULL ? g_steal_pointer(&error) : NULL);
+  waytator_capture_portal_unref(portal);
+}
+
 static void
 waytator_capture_portal_load_ready(GObject      *source_object,
                                    GAsyncResult *result,
@@ -1531,6 +1593,16 @@ waytator_capture_portal_handle_response(GDBusConnection *connection,
     return;
   }
 
+  //taking it in the desktop's own UI is the permission, so that is not what went wrong
+  if (response != 0 && portal->interactive) {
+    waytator_capture_portal_complete(portal,
+                                     NULL,
+                                     g_error_new_literal(G_IO_ERROR,
+                                                         G_IO_ERROR_FAILED,
+                                                         "The desktop's screenshot tool could not take a screenshot."));
+    return;
+  }
+
   //the answer says nothing more, the permission store tells whether a missing permission is why
   if (response != 0) {
     g_dbus_connection_call(portal->connection,
@@ -1560,9 +1632,13 @@ waytator_capture_portal_handle_response(GDBusConnection *connection,
   g_debug("portal: the screenshot is at %s", uri);
 
   //no cancellable on purpose, the file has to be cleaned up even if nobody wants the image anymore
-  load_task = g_task_new(NULL, NULL, waytator_capture_portal_load_ready, waytator_capture_portal_ref(portal));
+  load_task = g_task_new(NULL,
+                         NULL,
+                         portal->interactive ? waytator_capture_portal_shot_ready : waytator_capture_portal_load_ready,
+                         waytator_capture_portal_ref(portal));
   g_task_set_task_data(load_task, g_strdup(uri), g_free);
-  g_task_run_in_thread(load_task, waytator_capture_portal_load_thread);
+  g_task_run_in_thread(load_task,
+                       portal->interactive ? waytator_capture_portal_load_shot_thread : waytator_capture_portal_load_thread);
   g_object_unref(load_task);
 }
 
@@ -1701,16 +1777,19 @@ waytator_capture_portal_bus_ready(GObject      *source_object,
     g_source_attach(portal->cancel_source, g_task_get_context(portal->task));
   }
 
-  portal->timeout_source = g_timeout_source_new_seconds(WAYTATOR_CAPTURE_PORTAL_TIMEOUT_SECONDS);
-  g_source_set_callback(portal->timeout_source,
-                        waytator_capture_portal_handle_timeout,
-                        waytator_capture_portal_ref(portal),
-                        (GDestroyNotify) waytator_capture_portal_unref);
-  g_source_attach(portal->timeout_source, g_task_get_context(portal->task));
+  //someone choosing what to take in the desktop's UI can take as long as they like
+  if (!portal->interactive) {
+    portal->timeout_source = g_timeout_source_new_seconds(WAYTATOR_CAPTURE_PORTAL_TIMEOUT_SECONDS);
+    g_source_set_callback(portal->timeout_source,
+                          waytator_capture_portal_handle_timeout,
+                          waytator_capture_portal_ref(portal),
+                          (GDestroyNotify) waytator_capture_portal_unref);
+    g_source_attach(portal->timeout_source, g_task_get_context(portal->task));
+  }
 
   g_variant_builder_init(&options, G_VARIANT_TYPE_VARDICT);
   g_variant_builder_add(&options, "{sv}", "handle_token", g_variant_new_string(token));
-  g_variant_builder_add(&options, "{sv}", "interactive", g_variant_new_boolean(FALSE));
+  g_variant_builder_add(&options, "{sv}", "interactive", g_variant_new_boolean(portal->interactive));
 
   g_dbus_connection_call(portal->connection,
                          WAYTATOR_CAPTURE_PORTAL_NAME,
@@ -1728,12 +1807,14 @@ waytator_capture_portal_bus_ready(GObject      *source_object,
 
 //takes the task
 static void
-waytator_capture_portal_start(GTask *task)
+waytator_capture_portal_start(GTask   *task,
+                              gboolean interactive)
 {
   WaytatorCapturePortal *portal = g_new0(WaytatorCapturePortal, 1);
 
   portal->ref_count = 1;
   portal->task = task;
+  portal->interactive = interactive;
   g_bus_get(G_BUS_TYPE_SESSION,
             g_task_get_cancellable(task),
             waytator_capture_portal_bus_ready,
@@ -1751,9 +1832,53 @@ waytator_capture_backend_from_environment(void)
     return WAYTATOR_CAPTURE_BACKEND_SCREENCOPY;
   if (g_ascii_strcasecmp(value, "portal") == 0)
     return WAYTATOR_CAPTURE_BACKEND_PORTAL;
+  if (g_ascii_strcasecmp(value, "gnome") == 0)
+    return WAYTATOR_CAPTURE_BACKEND_GNOME;
 
-  g_warning("Ignoring WAYTATOR_CAPTURE_BACKEND=%s, it can be screencopy or portal", value);
+  g_warning("Ignoring WAYTATOR_CAPTURE_BACKEND=%s, it can be screencopy, portal or gnome", value);
   return WAYTATOR_CAPTURE_BACKEND_AUTO;
+}
+
+//GNOME has no screencopy and its portal only takes a screenshot without asking after a permission it cannot ask
+//for during a capture, so there the capture is GNOME's own screenshot UI
+gboolean
+waytator_capture_uses_gnome_ui(void)
+{
+  const WaytatorCaptureBackend backend = waytator_capture_backend_from_environment();
+  g_auto(GStrv) desktops = NULL;
+
+  if (backend != WAYTATOR_CAPTURE_BACKEND_AUTO)
+    return backend == WAYTATOR_CAPTURE_BACKEND_GNOME;
+
+  desktops = g_strsplit(g_getenv("XDG_CURRENT_DESKTOP") != NULL ? g_getenv("XDG_CURRENT_DESKTOP") : "", ":", -1);
+  return g_strv_contains((const char *const *) desktops, "GNOME");
+}
+
+void
+waytator_capture_gnome_ui_async(GAsyncReadyCallback callback,
+                                gpointer            user_data)
+{
+  GTask *task = g_task_new(NULL, NULL, callback, user_data);
+
+  g_task_set_source_tag(task, waytator_capture_gnome_ui_async);
+  waytator_capture_portal_start(task, TRUE);
+}
+
+GdkTexture *
+waytator_capture_gnome_ui_finish(GAsyncResult *result,
+                                 GFile       **file,
+                                 GError      **error)
+{
+  WaytatorCaptureShot *shot = g_task_propagate_pointer(G_TASK(result), error);
+  GdkTexture *texture;
+
+  if (shot == NULL)
+    return NULL;
+
+  texture = g_steal_pointer(&shot->texture);
+  *file = g_steal_pointer(&shot->file);
+  waytator_capture_shot_free(shot);
+  return texture;
 }
 
 static void
@@ -1789,7 +1914,7 @@ waytator_capture_screencopy_ready(GObject      *source_object,
     g_warning("Screen capture over wlr-screencopy failed, falling back to the screenshot portal: %s",
               error->message);
 
-  waytator_capture_portal_start(task);
+  waytator_capture_portal_start(task, FALSE);
 }
 
 void
@@ -1804,7 +1929,7 @@ waytator_capture_outputs_async(GCancellable       *cancellable,
   g_task_set_source_tag(task, waytator_capture_outputs_async);
 
   if (backend == WAYTATOR_CAPTURE_BACKEND_PORTAL) {
-    waytator_capture_portal_start(task);
+    waytator_capture_portal_start(task, FALSE);
     return;
   }
 

@@ -22,6 +22,15 @@ void waytator_capture_outputs_async(GCancellable       *cancellable,
 //fails with G_IO_ERROR_PERMISSION_DENIED when the portal needs a permission waytator_capture_allow_async gives
 GPtrArray *waytator_capture_outputs_finish(GAsyncResult *result,
                                            GError      **error);
+//true on GNOME, where a capture is taken in GNOME's own screenshot UI rather than waytator's overlay
+gboolean waytator_capture_uses_gnome_ui(void);
+//opens GNOME's screenshot UI, the result is what was taken there and the file GNOME saved it to.
+//fails with G_IO_ERROR_CANCELLED when the UI was closed without taking anything
+void waytator_capture_gnome_ui_async(GAsyncReadyCallback callback,
+                                     gpointer            user_data);
+GdkTexture *waytator_capture_gnome_ui_finish(GAsyncResult *result,
+                                             GFile       **file,
+                                             GError      **error);
 //allows waytator to take screenshots through the portal from now on, for when someone asked for that
 void waytator_capture_allow_async(GAsyncReadyCallback callback,
                                   gpointer            user_data);
