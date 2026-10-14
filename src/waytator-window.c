@@ -1604,7 +1604,7 @@ waytator_window_new_screenshots_page(WaytatorWindow *self)
   g_signal_connect(clear_button, "clicked", G_CALLBACK(waytator_window_screenshot_folder_clear_clicked), folder_row);
 
   adw_preferences_row_set_title(ADW_PREFERENCES_ROW(copy_row), "Copy to clipboard");
-  adw_action_row_set_subtitle(ADW_ACTION_ROW(copy_row), "With --screenshot --notify, as soon as it is taken");
+  adw_action_row_set_subtitle(ADW_ACTION_ROW(copy_row), "As soon as a screenshot is taken");
   adw_switch_row_set_active(copy_row, self->screenshot_copy);
   g_signal_connect(copy_row, "notify::active", G_CALLBACK(waytator_window_screenshot_copy_changed), self);
 
@@ -3830,6 +3830,8 @@ waytator_window_finish_capture(WaytatorWindow *self,
 
     waytator_window_open_capture(target, texture, name);
     gtk_window_present(GTK_WINDOW(target));
+    if (self->screenshot_copy)
+      waytator_screenshot_copy_texture(texture);
   }
 
   if (error != NULL) {

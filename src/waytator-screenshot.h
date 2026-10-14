@@ -20,6 +20,7 @@ char *waytator_screenshot_describe_save_error(const char   *save_dir,
 GFile *waytator_screenshot_reserve_file(const char *save_dir,
                                         const char *name,
                                         GError    **error);
+void waytator_screenshot_copy_texture(GdkTexture *texture);
 void waytator_screenshot_load_settings(char    **save_dir,
                                        gboolean *copy);
 void waytator_screenshot_capture_background(GApplication              *app,
