@@ -410,6 +410,10 @@ main(int   argc,
     run_argc = 2;
   }
 
+  //loading a big icon theme like Papirus took most of a second at startup, Adwaita is always there with gtk
+  if (gtk_init_check())
+    g_object_set(gtk_settings_get_default(), "gtk-icon-theme-name", "Adwaita", NULL);
+
   app = adw_application_new(WAYTATOR_APP_ID,
                              G_APPLICATION_HANDLES_COMMAND_LINE | G_APPLICATION_HANDLES_OPEN);
   g_application_set_resource_base_path(G_APPLICATION(app), "/dev/faetalize/waytator");
