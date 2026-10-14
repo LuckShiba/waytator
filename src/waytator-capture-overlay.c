@@ -1,4 +1,5 @@
 #include "waytator-capture-overlay.h"
+#include "waytator-pointer-brake.h"
 #include "waytator-settings.h"
 #include "waytator-window.h"
 
@@ -7,6 +8,14 @@
 
 //in logical pixels, anything smaller is a stray click rather than a selection
 #define WAYTATOR_CAPTURE_MIN_SELECTION 3.0
+//how much slower the cursor goes while shift is held
+#define WAYTATOR_CAPTURE_BRAKE 0.5
+//the magnifier shows this many of the monitor's pixels across, odd so that one sits right under the pointer
+#define WAYTATOR_MAGNIFIER_PIXELS 15
+//how big each of them is drawn, in logical pixels
+#define WAYTATOR_MAGNIFIER_ZOOM 10.0f
+//keeps the magnifier off the cursor
+#define WAYTATOR_MAGNIFIER_GAP 24.0f
 
 typedef struct _WaytatorCaptureOverlay WaytatorCaptureOverlay;
 
@@ -24,10 +33,14 @@ struct _WaytatorCaptureView {
   GtkWidget *pill;
   GtkToggleButton *area_button;
   GtkToggleButton *screen_button;
+  GtkToggleButton *magnifier_button;
   GtkRevealer *delay_choices;
   GtkLabel *hint_label;
   gboolean hovered;
   gboolean selecting;
+  //where the cursor is, or the one drawn in its place while braking
+  double pointer_x;
+  double pointer_y;
   double start_x;
   double start_y;
   double end_x;
@@ -44,6 +57,10 @@ struct _WaytatorCaptureOverlay {
   gboolean closed;
   gboolean offer_hide;
   gboolean hide_waytator;
+  gboolean magnifier;
+  //held while shift is, on the view the pointer was over when it went down
+  WaytatorPointerBrake *brake;
+  WaytatorCaptureView *brake_view;
   WaytatorCaptureOverlayRetakeCallback retake;
   WaytatorCaptureOverlayCallback callback;
   gpointer user_data;
@@ -118,22 +135,19 @@ waytator_capture_pick_output(GPtrArray          *outputs,
 
 //the pill is one of the floating controls, read from the settings since there may be no window to ask
 static GtkCssProvider *
-waytator_capture_overlay_new_pill_style(void)
+waytator_capture_overlay_new_pill_style(const WaytatorSettings *settings)
 {
   g_autofree char *css = NULL;
   GtkCssProvider *provider = gtk_css_provider_new();
-  WaytatorSettings settings;
   char opacity_text[G_ASCII_DTOSTR_BUF_SIZE];
 
-  waytator_settings_load(&settings);
   //printf would use the locale's decimal separator, which is not valid css
-  g_ascii_formatd(opacity_text, sizeof opacity_text, "%.2f", settings.floating_controls_opacity);
+  g_ascii_formatd(opacity_text, sizeof opacity_text, "%.2f", settings->floating_controls_opacity);
   css = g_strdup_printf(".capture-pill { background: alpha(black, %s); background-color: alpha(black, %s);"
                         " backdrop-filter: %s; }",
                         opacity_text,
                         opacity_text,
-                        settings.floating_controls_blur ? "blur(18px)" : "none");
-  waytator_settings_clear(&settings);
+                        settings->floating_controls_blur ? "blur(18px)" : "none");
   gtk_css_provider_load_from_string(provider, css);
   gtk_style_context_add_provider_for_display(gdk_display_get_default(),
                                              GTK_STYLE_PROVIDER(provider),
@@ -156,6 +170,81 @@ waytator_capture_overlay_free(gpointer user_data)
   return G_SOURCE_REMOVE;
 }
 
+static void
+waytator_capture_view_set_selection_end(WaytatorCaptureView *self,
+                                        double               x,
+                                        double               y);
+
+//the compositor is asked to put the real cursor where the drawn one ended up
+static void
+waytator_capture_overlay_stop_brake(WaytatorCaptureOverlay *overlay)
+{
+  WaytatorCaptureView *view = overlay->brake_view;
+
+  if (overlay->brake == NULL)
+    return;
+
+  waytator_pointer_brake_release(overlay->brake, view->pointer_x, view->pointer_y);
+  overlay->brake = NULL;
+  overlay->brake_view = NULL;
+  gtk_widget_set_cursor_from_name(GTK_WIDGET(view),
+                                  overlay->mode == WAYTATOR_CAPTURE_AREA ? "crosshair" : "default");
+  gtk_widget_queue_draw(GTK_WIDGET(view));
+}
+
+static void
+waytator_capture_overlay_brake_moved(double   dx,
+                                     double   dy,
+                                     gpointer user_data)
+{
+  WaytatorCaptureOverlay *overlay = user_data;
+  WaytatorCaptureView *view = overlay->brake_view;
+  const double x = CLAMP(view->pointer_x + dx * WAYTATOR_CAPTURE_BRAKE, 0.0, gtk_widget_get_width(GTK_WIDGET(view)));
+  const double y = CLAMP(view->pointer_y + dy * WAYTATOR_CAPTURE_BRAKE, 0.0, gtk_widget_get_height(GTK_WIDGET(view)));
+
+  if (view->selecting) {
+    waytator_capture_view_set_selection_end(view, x, y);
+    return;
+  }
+
+  view->pointer_x = x;
+  view->pointer_y = y;
+  gtk_widget_queue_draw(GTK_WIDGET(view));
+}
+
+static void
+waytator_capture_overlay_brake_lost(gpointer user_data)
+{
+  waytator_capture_overlay_stop_brake(user_data);
+}
+
+//the real cursor stays put and one drawn by the view moves at a fraction of its speed instead
+static void
+waytator_capture_overlay_start_brake(WaytatorCaptureOverlay *overlay)
+{
+  if (overlay->brake != NULL || overlay->mode != WAYTATOR_CAPTURE_AREA)
+    return;
+
+  for (guint i = 0; i < overlay->views->len; i++) {
+    WaytatorCaptureView *view = g_ptr_array_index(overlay->views, i);
+
+    if (!view->hovered)
+      continue;
+
+    overlay->brake = waytator_pointer_brake_new(GTK_WIDGET(view),
+                                                waytator_capture_overlay_brake_moved,
+                                                waytator_capture_overlay_brake_lost,
+                                                overlay);
+    if (overlay->brake == NULL)
+      return;
+
+    overlay->brake_view = view;
+    gtk_widget_set_cursor_from_name(GTK_WIDGET(view), "none");
+    gtk_widget_queue_draw(GTK_WIDGET(view));
+    return;
+  }
+}
+
 //FALSE when it already closed, events can still arrive while the windows go away
 static gboolean
 waytator_capture_overlay_close(WaytatorCaptureOverlay *overlay)
@@ -164,6 +253,7 @@ waytator_capture_overlay_close(WaytatorCaptureOverlay *overlay)
     return FALSE;
 
   overlay->closed = TRUE;
+  waytator_capture_overlay_stop_brake(overlay);
   //with one window per screen, closing the focused one hands focus to the next one, which is closing too
   waytator_window_destroy_settled((GtkWindow *const *) overlay->windows->pdata, overlay->windows->len);
 
@@ -227,6 +317,7 @@ waytator_capture_overlay_set_mode(WaytatorCaptureOverlay *overlay,
 {
   const gboolean area = mode == WAYTATOR_CAPTURE_AREA;
 
+  waytator_capture_overlay_stop_brake(overlay);
   overlay->mode = mode;
   overlay->updating = TRUE;
 
@@ -234,8 +325,10 @@ waytator_capture_overlay_set_mode(WaytatorCaptureOverlay *overlay,
     WaytatorCaptureView *view = g_ptr_array_index(overlay->views, i);
 
     gtk_toggle_button_set_active(area ? view->area_button : view->screen_button, TRUE);
+    gtk_widget_set_sensitive(GTK_WIDGET(view->magnifier_button), area);
     gtk_label_set_text(view->hint_label,
-                       area ? "Drag to select · Esc to cancel" : "Click a screen · Esc to cancel");
+                       area ? "Drag to select · Shift to slow down · Esc to cancel"
+                            : "Click a screen · Esc to cancel");
     gtk_widget_set_cursor_from_name(GTK_WIDGET(view), area ? "crosshair" : "default");
     view->selecting = FALSE;
     gtk_widget_queue_draw(GTK_WIDGET(view));
@@ -244,43 +337,110 @@ waytator_capture_overlay_set_mode(WaytatorCaptureOverlay *overlay,
   overlay->updating = FALSE;
 }
 
-static gboolean
-waytator_capture_view_get_selection(WaytatorCaptureView *self,
-                                    graphene_rect_t     *selection)
+static void
+waytator_capture_overlay_set_magnifier(WaytatorCaptureOverlay *overlay,
+                                       gboolean                magnifier)
 {
-  if (!self->selecting)
-    return FALSE;
+  overlay->magnifier = magnifier;
+  overlay->updating = TRUE;
 
-  graphene_rect_init(selection,
-                     MIN(self->start_x, self->end_x),
-                     MIN(self->start_y, self->end_y),
-                     fabs(self->end_x - self->start_x),
-                     fabs(self->end_y - self->start_y));
-  return TRUE;
+  for (guint i = 0; i < overlay->views->len; i++) {
+    WaytatorCaptureView *view = g_ptr_array_index(overlay->views, i);
+
+    gtk_toggle_button_set_active(view->magnifier_button, magnifier);
+    gtk_widget_queue_draw(GTK_WIDGET(view));
+  }
+
+  overlay->updating = FALSE;
 }
 
 //the widget is laid out in logical pixels, the frame is in the monitor's real ones
 static void
-waytator_capture_view_selection_to_pixels(WaytatorCaptureView   *self,
-                                          const graphene_rect_t *selection,
-                                          int                   *x,
-                                          int                   *y,
-                                          int                   *width,
-                                          int                   *height)
+waytator_capture_view_pixel_at(WaytatorCaptureView *self,
+                               double               x,
+                               double               y,
+                               int                 *pixel_x,
+                               int                 *pixel_y)
 {
   const int surface_width = cairo_image_surface_get_width(self->output->surface);
   const int surface_height = cairo_image_surface_get_height(self->output->surface);
   const double scale_x = (double) surface_width / MAX(gtk_widget_get_width(GTK_WIDGET(self)), 1);
   const double scale_y = (double) surface_height / MAX(gtk_widget_get_height(GTK_WIDGET(self)), 1);
-  const int left = CLAMP((int) round(selection->origin.x * scale_x), 0, surface_width);
-  const int top = CLAMP((int) round(selection->origin.y * scale_y), 0, surface_height);
-  const int right = CLAMP((int) round((selection->origin.x + selection->size.width) * scale_x), 0, surface_width);
-  const int bottom = CLAMP((int) round((selection->origin.y + selection->size.height) * scale_y), 0, surface_height);
 
-  *x = left;
-  *y = top;
-  *width = right - left;
-  *height = bottom - top;
+  *pixel_x = CLAMP((int) floor(x * scale_x), 0, surface_width - 1);
+  *pixel_y = CLAMP((int) floor(y * scale_y), 0, surface_height - 1);
+}
+
+//both corners take in the whole pixel under them, so the one the magnifier points at is the one that gets captured
+static gboolean
+waytator_capture_view_get_selection_pixels(WaytatorCaptureView *self,
+                                           int                 *x,
+                                           int                 *y,
+                                           int                 *width,
+                                           int                 *height)
+{
+  int start_x;
+  int start_y;
+  int end_x;
+  int end_y;
+
+  if (!self->selecting)
+    return FALSE;
+
+  waytator_capture_view_pixel_at(self, self->start_x, self->start_y, &start_x, &start_y);
+  waytator_capture_view_pixel_at(self, self->end_x, self->end_y, &end_x, &end_y);
+  *x = MIN(start_x, end_x);
+  *y = MIN(start_y, end_y);
+  *width = ABS(end_x - start_x) + 1;
+  *height = ABS(end_y - start_y) + 1;
+  return TRUE;
+}
+
+//the selection as drawn, lined up with the pixels it takes in
+static gboolean
+waytator_capture_view_get_selection(WaytatorCaptureView *self,
+                                    graphene_rect_t     *selection)
+{
+  const double scale_x = gtk_widget_get_width(GTK_WIDGET(self))
+                         / (double) cairo_image_surface_get_width(self->output->surface);
+  const double scale_y = gtk_widget_get_height(GTK_WIDGET(self))
+                         / (double) cairo_image_surface_get_height(self->output->surface);
+  int x;
+  int y;
+  int width;
+  int height;
+
+  if (!waytator_capture_view_get_selection_pixels(self, &x, &y, &width, &height))
+    return FALSE;
+
+  graphene_rect_init(selection, x * scale_x, y * scale_y, width * scale_x, height * scale_y);
+  return TRUE;
+}
+
+static void
+waytator_capture_view_snapshot_label(GtkSnapshot *snapshot,
+                                     PangoLayout *layout,
+                                     float        x,
+                                     float        y)
+{
+  const GdkRGBA background = { 0.0, 0.0, 0.0, 0.75 };
+  const GdkRGBA foreground = { 1.0, 1.0, 1.0, 1.0 };
+  GskRoundedRect box;
+  int text_width;
+  int text_height;
+
+  pango_layout_get_pixel_size(layout, &text_width, &text_height);
+  gsk_rounded_rect_init_from_rect(&box,
+                                  &GRAPHENE_RECT_INIT(x, y, text_width + 12.0f, text_height + 6.0f),
+                                  6.0f);
+  gtk_snapshot_push_rounded_clip(snapshot, &box);
+  gtk_snapshot_append_color(snapshot, &background, &box.bounds);
+  gtk_snapshot_pop(snapshot);
+
+  gtk_snapshot_save(snapshot);
+  gtk_snapshot_translate(snapshot, &GRAPHENE_POINT_INIT(x + 6.0f, y + 3.0f));
+  gtk_snapshot_append_layout(snapshot, layout, &foreground);
+  gtk_snapshot_restore(snapshot);
 }
 
 static void
@@ -290,11 +450,8 @@ waytator_capture_view_snapshot_size_label(WaytatorCaptureView   *self,
                                           float                  view_width,
                                           float                  view_height)
 {
-  const GdkRGBA background = { 0.0, 0.0, 0.0, 0.75 };
-  const GdkRGBA foreground = { 1.0, 1.0, 1.0, 1.0 };
   g_autoptr(PangoLayout) layout = NULL;
   g_autofree char *text = NULL;
-  GskRoundedRect box;
   int x;
   int y;
   int width;
@@ -304,7 +461,7 @@ waytator_capture_view_snapshot_size_label(WaytatorCaptureView   *self,
   float box_x;
   float box_y;
 
-  waytator_capture_view_selection_to_pixels(self, selection, &x, &y, &width, &height);
+  waytator_capture_view_get_selection_pixels(self, &x, &y, &width, &height);
   text = g_strdup_printf("%d × %d", width, height);
   layout = gtk_widget_create_pango_layout(GTK_WIDGET(self), text);
   pango_layout_get_pixel_size(layout, &text_width, &text_height);
@@ -315,17 +472,7 @@ waytator_capture_view_snapshot_size_label(WaytatorCaptureView   *self,
     box_y = selection->origin.y + selection->size.height - text_height - 14.0f;
   box_x = MAX(MIN(box_x, view_width - text_width - 12.0f), 0.0f);
 
-  gsk_rounded_rect_init_from_rect(&box,
-                                  &GRAPHENE_RECT_INIT(box_x, box_y, text_width + 12.0f, text_height + 6.0f),
-                                  6.0f);
-  gtk_snapshot_push_rounded_clip(snapshot, &box);
-  gtk_snapshot_append_color(snapshot, &background, &box.bounds);
-  gtk_snapshot_pop(snapshot);
-
-  gtk_snapshot_save(snapshot);
-  gtk_snapshot_translate(snapshot, &GRAPHENE_POINT_INIT(box_x + 6.0f, box_y + 3.0f));
-  gtk_snapshot_append_layout(snapshot, layout, &foreground);
-  gtk_snapshot_restore(snapshot);
+  waytator_capture_view_snapshot_label(snapshot, layout, box_x, box_y);
 }
 
 static void
@@ -341,6 +488,193 @@ waytator_capture_view_snapshot_outline(GtkSnapshot           *snapshot,
                              &outline,
                              (float[4]) { thickness, thickness, thickness, thickness },
                              (GdkRGBA[4]) { white, white, white, white });
+}
+
+static void
+waytator_capture_view_snapshot_ring(GtkSnapshot          *snapshot,
+                                    const GskRoundedRect *shape,
+                                    float                 thickness,
+                                    const GdkRGBA        *color)
+{
+  gtk_snapshot_append_border(snapshot,
+                             shape,
+                             (float[4]) { thickness, thickness, thickness, thickness },
+                             (GdkRGBA[4]) { *color, *color, *color, *color });
+}
+
+//beside the pointer, on the side facing away from the selection so it never covers what is being picked, and
+//over on the other side wherever the screen runs out
+static void
+waytator_capture_view_place_magnifier(WaytatorCaptureView   *self,
+                                      const graphene_rect_t *selection,
+                                      float                  width,
+                                      float                  height,
+                                      float                  view_width,
+                                      float                  view_height,
+                                      graphene_point_t      *origin)
+{
+  const float x = self->pointer_x;
+  const float y = self->pointer_y;
+  const gboolean prefer_left = self->selecting && self->end_x < self->start_x;
+  const gboolean prefer_up = self->selecting && self->end_y < self->start_y;
+  graphene_rect_t avoid;
+  gboolean found_fallback = FALSE;
+  graphene_point_t fallback = { 0.0f, 0.0f };
+
+  //with the outline around it
+  if (selection != NULL)
+    graphene_rect_inset_r(selection, -2.0f, -2.0f, &avoid);
+
+  for (guint i = 0; i < 4; i++) {
+    const gboolean left = prefer_left != ((i & 1) != 0);
+    const gboolean up = prefer_up != ((i & 2) != 0);
+    const graphene_rect_t box = GRAPHENE_RECT_INIT(left ? x - WAYTATOR_MAGNIFIER_GAP - width : x + WAYTATOR_MAGNIFIER_GAP,
+                                                   up ? y - WAYTATOR_MAGNIFIER_GAP - height : y + WAYTATOR_MAGNIFIER_GAP,
+                                                   width,
+                                                   height);
+
+    if (box.origin.x < 0.0f
+        || box.origin.y < 0.0f
+        || box.origin.x + width > view_width
+        || box.origin.y + height > view_height)
+      continue;
+
+    if (selection == NULL || !graphene_rect_intersection(&box, &avoid, NULL)) {
+      *origin = box.origin;
+      return;
+    }
+
+    if (!found_fallback) {
+      fallback = box.origin;
+      found_fallback = TRUE;
+    }
+  }
+
+  if (found_fallback) {
+    *origin = fallback;
+    return;
+  }
+
+  //a screen too small for it anywhere
+  origin->x = CLAMP(x + WAYTATOR_MAGNIFIER_GAP, 0.0f, MAX(view_width - width, 0.0f));
+  origin->y = CLAMP(y + WAYTATOR_MAGNIFIER_GAP, 0.0f, MAX(view_height - height, 0.0f));
+}
+
+//the monitor's own pixels around the pointer, blown up on a grid, with the one under it marked
+static void
+waytator_capture_view_snapshot_magnifier(WaytatorCaptureView   *self,
+                                         GtkSnapshot           *snapshot,
+                                         const graphene_rect_t *selection,
+                                         float                  view_width,
+                                         float                  view_height)
+{
+  const GdkRGBA backdrop = { 0.1, 0.1, 0.1, 1.0 };
+  const GdkRGBA grid = { 0.0, 0.0, 0.0, 0.25 };
+  const GdkRGBA crosshair = { 0.55, 0.78, 1.0, 0.4 };
+  const GdkRGBA black = { 0.0, 0.0, 0.0, 1.0 };
+  const GdkRGBA white = { 1.0, 1.0, 1.0, 1.0 };
+  const GdkRGBA edge = { 0.0, 0.0, 0.0, 0.5 };
+  const GdkRGBA shadow = { 0.0, 0.0, 0.0, 0.35 };
+  const float zoom = WAYTATOR_MAGNIFIER_ZOOM;
+  const float size = WAYTATOR_MAGNIFIER_PIXELS * zoom;
+  const int reach = WAYTATOR_MAGNIFIER_PIXELS / 2;
+  const float middle = reach * zoom;
+  const int surface_width = cairo_image_surface_get_width(self->output->surface);
+  const int surface_height = cairo_image_surface_get_height(self->output->surface);
+  g_autoptr(PangoLayout) layout = NULL;
+  g_autoptr(GdkTexture) pixels = NULL;
+  g_autofree char *text = NULL;
+  graphene_point_t origin;
+  GskRoundedRect circle;
+  GskRoundedRect border;
+  int pixel_x;
+  int pixel_y;
+  int text_width;
+  int text_height;
+  int left;
+  int top;
+  int right;
+  int bottom;
+  float block_width;
+  float x;
+  float y;
+
+  waytator_capture_view_pixel_at(self, self->pointer_x, self->pointer_y, &pixel_x, &pixel_y);
+  text = g_strdup_printf("X: %d  Y: %d", pixel_x, pixel_y);
+  layout = gtk_widget_create_pango_layout(GTK_WIDGET(self), text);
+  pango_layout_get_pixel_size(layout, &text_width, &text_height);
+
+  block_width = MAX(size, text_width + 12.0f);
+  waytator_capture_view_place_magnifier(self,
+                                        selection,
+                                        block_width,
+                                        size + 6.0f + text_height + 6.0f,
+                                        view_width,
+                                        view_height,
+                                        &origin);
+  x = origin.x + (block_width - size) / 2.0f;
+  y = origin.y;
+  gsk_rounded_rect_init_from_rect(&circle, &GRAPHENE_RECT_INIT(x, y, size, size), size / 2.0f);
+
+  gtk_snapshot_append_outset_shadow(snapshot, &circle, &shadow, 0.0f, 4.0f, 0.0f, 16.0f);
+  gtk_snapshot_push_rounded_clip(snapshot, &circle);
+  gtk_snapshot_append_color(snapshot, &backdrop, &circle.bounds);
+
+  //only what it shows is cut out of the frame, past the edge of the screen it stays dark
+  left = MAX(pixel_x - reach, 0);
+  top = MAX(pixel_y - reach, 0);
+  right = MIN(pixel_x + reach + 1, surface_width);
+  bottom = MIN(pixel_y + reach + 1, surface_height);
+  pixels = waytator_capture_texture_new(self->output->surface, left, top, right - left, bottom - top);
+  gtk_snapshot_append_scaled_texture(snapshot,
+                                     pixels,
+                                     GSK_SCALING_FILTER_NEAREST,
+                                     &GRAPHENE_RECT_INIT(x + middle + (left - pixel_x) * zoom,
+                                                         y + middle + (top - pixel_y) * zoom,
+                                                         (right - left) * zoom,
+                                                         (bottom - top) * zoom));
+
+  for (int i = 1; i < WAYTATOR_MAGNIFIER_PIXELS; i++) {
+    gtk_snapshot_append_color(snapshot, &grid, &GRAPHENE_RECT_INIT(x + i * zoom - 0.5f, y, 1.0f, size));
+    gtk_snapshot_append_color(snapshot, &grid, &GRAPHENE_RECT_INIT(x, y + i * zoom - 0.5f, size, 1.0f));
+  }
+
+  //the row and column through the pointer, short of the pixel itself so its colour stays readable
+  gtk_snapshot_append_color(snapshot, &crosshair, &GRAPHENE_RECT_INIT(x + middle, y, zoom, middle));
+  gtk_snapshot_append_color(snapshot, &crosshair, &GRAPHENE_RECT_INIT(x + middle, y + middle + zoom, zoom, middle));
+  gtk_snapshot_append_color(snapshot, &crosshair, &GRAPHENE_RECT_INIT(x, y + middle, middle, zoom));
+  gtk_snapshot_append_color(snapshot, &crosshair, &GRAPHENE_RECT_INIT(x + middle + zoom, y + middle, middle, zoom));
+
+  gsk_rounded_rect_init_from_rect(&border, &GRAPHENE_RECT_INIT(x + middle, y + middle, zoom, zoom), 0.0f);
+  waytator_capture_view_snapshot_ring(snapshot, &border, 1.0f, &black);
+  gsk_rounded_rect_init_from_rect(&border, &GRAPHENE_RECT_INIT(x + middle - 1.0f, y + middle - 1.0f, zoom + 2.0f, zoom + 2.0f), 0.0f);
+  waytator_capture_view_snapshot_ring(snapshot, &border, 1.0f, &white);
+  gtk_snapshot_pop(snapshot);
+
+  waytator_capture_view_snapshot_ring(snapshot, &circle, 2.0f, &white);
+  gsk_rounded_rect_init_from_rect(&border, &GRAPHENE_RECT_INIT(x - 1.0f, y - 1.0f, size + 2.0f, size + 2.0f), size / 2.0f + 1.0f);
+  waytator_capture_view_snapshot_ring(snapshot, &border, 1.0f, &edge);
+
+  waytator_capture_view_snapshot_label(snapshot,
+                                       layout,
+                                       origin.x + (block_width - text_width - 12.0f) / 2.0f,
+                                       y + size + 6.0f);
+}
+
+//the real cursor is held still while braking, this stands in for it
+static void
+waytator_capture_view_snapshot_cursor(WaytatorCaptureView *self,
+                                      GtkSnapshot         *snapshot)
+{
+  const GdkRGBA black = { 0.0, 0.0, 0.0, 0.8 };
+  const GdkRGBA white = { 1.0, 1.0, 1.0, 1.0 };
+  const float x = self->pointer_x;
+  const float y = self->pointer_y;
+
+  gtk_snapshot_append_color(snapshot, &black, &GRAPHENE_RECT_INIT(x - 10.5f, y - 1.5f, 21.0f, 3.0f));
+  gtk_snapshot_append_color(snapshot, &black, &GRAPHENE_RECT_INIT(x - 1.5f, y - 10.5f, 3.0f, 21.0f));
+  gtk_snapshot_append_color(snapshot, &white, &GRAPHENE_RECT_INIT(x - 9.5f, y - 0.5f, 19.0f, 1.0f));
+  gtk_snapshot_append_color(snapshot, &white, &GRAPHENE_RECT_INIT(x - 0.5f, y - 9.5f, 1.0f, 19.0f));
 }
 
 static void
@@ -366,6 +700,10 @@ waytator_capture_view_snapshot(GtkWidget   *widget,
 
   if (!waytator_capture_view_get_selection(self, &selection)) {
     gtk_snapshot_append_color(snapshot, &dim, &bounds);
+    if (self->overlay->magnifier && self->hovered)
+      waytator_capture_view_snapshot_magnifier(self, snapshot, NULL, width, height);
+    if (self->overlay->brake_view == self)
+      waytator_capture_view_snapshot_cursor(self, snapshot);
     return;
   }
 
@@ -397,6 +735,11 @@ waytator_capture_view_snapshot(GtkWidget   *widget,
                                                              selection.size.height + 2.0f),
                                          1.0f);
   waytator_capture_view_snapshot_size_label(self, snapshot, &selection, width, height);
+
+  if (self->overlay->magnifier && self->hovered)
+    waytator_capture_view_snapshot_magnifier(self, snapshot, &selection, width, height);
+  if (self->overlay->brake_view == self)
+    waytator_capture_view_snapshot_cursor(self, snapshot);
 }
 
 static void
@@ -406,6 +749,9 @@ waytator_capture_view_set_selection_end(WaytatorCaptureView *self,
 {
   self->end_x = CLAMP(x, 0.0, gtk_widget_get_width(GTK_WIDGET(self)));
   self->end_y = CLAMP(y, 0.0, gtk_widget_get_height(GTK_WIDGET(self)));
+  //a touch drag moves no pointer, the magnifier follows the selection instead
+  self->pointer_x = self->end_x;
+  self->pointer_y = self->end_y;
   gtk_widget_queue_draw(GTK_WIDGET(self));
 }
 
@@ -419,6 +765,12 @@ waytator_capture_view_drag_begin(GtkGestureDrag      *gesture,
 
   if (self->overlay->mode != WAYTATOR_CAPTURE_AREA)
     return;
+
+  //the real pointer is held where braking began, the press belongs to the drawn one
+  if (self->overlay->brake_view == self) {
+    x = self->pointer_x;
+    y = self->pointer_y;
+  }
 
   self->selecting = TRUE;
   self->start_x = CLAMP(x, 0.0, gtk_widget_get_width(GTK_WIDGET(self)));
@@ -437,7 +789,10 @@ waytator_capture_view_drag_update(GtkGestureDrag      *gesture,
   double start_x;
   double start_y;
 
-  if (!self->selecting || !gtk_gesture_drag_get_start_point(gesture, &start_x, &start_y))
+  //while braking the selection follows the drawn cursor rather than the pointer
+  if (!self->selecting
+      || self->overlay->brake_view == self
+      || !gtk_gesture_drag_get_start_point(gesture, &start_x, &start_y))
     return;
 
   waytator_capture_view_set_selection_end(self, start_x + offset_x, start_y + offset_y);
@@ -450,7 +805,6 @@ waytator_capture_view_drag_end(GtkGestureDrag      *gesture,
                                WaytatorCaptureView *self)
 {
   g_autoptr(GdkTexture) texture = NULL;
-  graphene_rect_t selection;
   int x;
   int y;
   int width;
@@ -465,13 +819,10 @@ waytator_capture_view_drag_end(GtkGestureDrag      *gesture,
     return;
 
   waytator_capture_view_drag_update(gesture, offset_x, offset_y, self);
-  waytator_capture_view_get_selection(self, &selection);
-  waytator_capture_view_selection_to_pixels(self, &selection, &x, &y, &width, &height);
+  waytator_capture_view_get_selection_pixels(self, &x, &y, &width, &height);
 
-  if (selection.size.width < WAYTATOR_CAPTURE_MIN_SELECTION
-      || selection.size.height < WAYTATOR_CAPTURE_MIN_SELECTION
-      || width <= 0
-      || height <= 0) {
+  if (fabs(self->end_x - self->start_x) < WAYTATOR_CAPTURE_MIN_SELECTION
+      || fabs(self->end_y - self->start_y) < WAYTATOR_CAPTURE_MIN_SELECTION) {
     self->selecting = FALSE;
     waytator_capture_overlay_set_pills_visible(self->overlay, TRUE);
     gtk_widget_queue_draw(GTK_WIDGET(self));
@@ -520,11 +871,25 @@ waytator_capture_view_pointer_entered(GtkEventControllerMotion *controller,
                                       WaytatorCaptureView      *self)
 {
   (void) controller;
-  (void) x;
-  (void) y;
 
   self->hovered = TRUE;
+  self->pointer_x = x;
+  self->pointer_y = y;
   gtk_widget_queue_draw(GTK_WIDGET(self));
+}
+
+static void
+waytator_capture_view_pointer_moved(GtkEventControllerMotion *controller,
+                                    double                    x,
+                                    double                    y,
+                                    WaytatorCaptureView      *self)
+{
+  (void) controller;
+
+  self->pointer_x = x;
+  self->pointer_y = y;
+  if (self->overlay->magnifier)
+    gtk_widget_queue_draw(GTK_WIDGET(self));
 }
 
 static void
@@ -577,6 +942,7 @@ waytator_capture_view_init(WaytatorCaptureView *self)
 
   g_signal_connect(motion, "enter", G_CALLBACK(waytator_capture_view_pointer_entered), self);
   g_signal_connect(motion, "leave", G_CALLBACK(waytator_capture_view_pointer_left), self);
+  g_signal_connect(motion, "motion", G_CALLBACK(waytator_capture_view_pointer_moved), self);
   gtk_widget_add_controller(GTK_WIDGET(self), motion);
 }
 
@@ -605,6 +971,36 @@ waytator_capture_overlay_new_mode_button(WaytatorCaptureView *view,
   g_signal_connect(button, "toggled", G_CALLBACK(waytator_capture_overlay_mode_toggled), view);
   gtk_box_append(GTK_BOX(view->pill), button);
   return GTK_TOGGLE_BUTTON(button);
+}
+
+static void
+waytator_capture_overlay_magnifier_toggled(GtkToggleButton     *button,
+                                           WaytatorCaptureView *view)
+{
+  const gboolean magnifier = gtk_toggle_button_get_active(button);
+
+  if (view->overlay->updating)
+    return;
+
+  waytator_capture_overlay_set_magnifier(view->overlay, magnifier);
+  //it stays the way it was left for the next capture
+  if (waytator_settings_save_boolean("capture_magnifier", magnifier))
+    waytator_window_reload_preferences(GTK_APPLICATION(g_application_get_default()), NULL);
+}
+
+static void
+waytator_capture_overlay_append_magnifier(WaytatorCaptureView *view)
+{
+  GtkWidget *button = gtk_toggle_button_new();
+
+  gtk_button_set_icon_name(GTK_BUTTON(button), "waytator-magnifier-symbolic");
+  gtk_widget_set_tooltip_text(button, "Magnifier");
+  gtk_widget_set_focusable(button, FALSE);
+  gtk_widget_add_css_class(button, "flat");
+  gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(button), view->overlay->magnifier);
+  g_signal_connect(button, "toggled", G_CALLBACK(waytator_capture_overlay_magnifier_toggled), view);
+  gtk_box_append(GTK_BOX(view->pill), button);
+  view->magnifier_button = GTK_TOGGLE_BUTTON(button);
 }
 
 static void
@@ -666,6 +1062,8 @@ waytator_capture_overlay_build_pill(WaytatorCaptureView *view)
   view->screen_button = waytator_capture_overlay_new_mode_button(view, "Screen");
   gtk_toggle_button_set_group(view->screen_button, view->area_button);
   waytator_capture_overlay_append_separator(view);
+  waytator_capture_overlay_append_magnifier(view);
+  waytator_capture_overlay_append_separator(view);
 
   if (view->overlay->offer_hide) {
     GtkWidget *hide_button = gtk_check_button_new_with_label("Hide waytator");
@@ -696,11 +1094,31 @@ waytator_capture_overlay_key_pressed(GtkEventControllerKey  *controller,
   (void) keycode;
   (void) state;
 
+  if (keyval == GDK_KEY_Shift_L || keyval == GDK_KEY_Shift_R) {
+    waytator_capture_overlay_start_brake(overlay);
+    return GDK_EVENT_STOP;
+  }
+
   if (keyval != GDK_KEY_Escape)
     return GDK_EVENT_PROPAGATE;
 
   waytator_capture_overlay_finish(overlay, NULL);
   return GDK_EVENT_STOP;
+}
+
+static void
+waytator_capture_overlay_key_released(GtkEventControllerKey  *controller,
+                                      guint                   keyval,
+                                      guint                   keycode,
+                                      GdkModifierType         state,
+                                      WaytatorCaptureOverlay *overlay)
+{
+  (void) controller;
+  (void) keycode;
+  (void) state;
+
+  if (keyval == GDK_KEY_Shift_L || keyval == GDK_KEY_Shift_R)
+    waytator_capture_overlay_stop_brake(overlay);
 }
 
 static gboolean
@@ -766,6 +1184,7 @@ waytator_capture_overlay_add_window(WaytatorCaptureOverlay *overlay,
 
   gtk_event_controller_set_propagation_phase(keys, GTK_PHASE_CAPTURE);
   g_signal_connect(keys, "key-pressed", G_CALLBACK(waytator_capture_overlay_key_pressed), overlay);
+  g_signal_connect(keys, "key-released", G_CALLBACK(waytator_capture_overlay_key_released), overlay);
   gtk_widget_add_controller(GTK_WIDGET(window), keys);
   g_signal_connect(window, "close-request", G_CALLBACK(waytator_capture_overlay_close_requested), overlay);
 
@@ -798,18 +1217,22 @@ waytator_capture_overlay_show(GPtrArray                           *outputs,
                               gpointer                             user_data)
 {
   WaytatorCaptureOverlay *overlay = g_new0(WaytatorCaptureOverlay, 1);
+  WaytatorSettings settings;
 
   waytator_window_ensure_css_loaded();
+  waytator_settings_load(&settings);
 
   overlay->outputs = outputs;
   overlay->windows = g_ptr_array_new();
   overlay->views = g_ptr_array_new();
-  overlay->pill_style = waytator_capture_overlay_new_pill_style();
+  overlay->pill_style = waytator_capture_overlay_new_pill_style(&settings);
+  overlay->magnifier = settings.capture_magnifier;
   overlay->offer_hide = offer_hide;
   overlay->hide_waytator = hide_waytator;
   overlay->retake = retake;
   overlay->callback = callback;
   overlay->user_data = user_data;
+  waytator_settings_clear(&settings);
 
   for (guint i = 0; i < outputs->len; i++) {
     WaytatorCaptureOutput *output = g_ptr_array_index(outputs, i);

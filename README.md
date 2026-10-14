@@ -75,6 +75,8 @@ waytator --screenshot screen   # a whole screen
 
 The screen freezes while you choose, and `Esc` or a right click cancels. With more than one screen, `--screenshot screen` lets you click the one you want, and `--screenshot --screen DP-1` takes that one straight away. The same captures are available inside the app, from the camera button next to Open.
 
+For pixel-exact selections, the magnifier button in the bar at the bottom shows the pixels around the pointer up close, on a grid with a crosshair and the pixel's coordinates. It keeps out of the way of the selection and the screen edges, and stays on for later screenshots until you turn it off. Hold `Shift` while selecting to move the pointer at half speed. The pixel under the crosshair is included at both corners of the selection.
+
 To get a menu or a tooltip on screen first, add `--delay 3` to wait that many seconds before the screen freezes (whole seconds, up to 300). Once the screen is frozen, Delay in the bar at the bottom waits 1, 3, 5 or 10 seconds and freezes it again. In the app, Delay under Capture, or the arrow next to the camera button, sets a delay for the captures started there.
 
 Add `--notify` to take the screenshot without opening the editor:

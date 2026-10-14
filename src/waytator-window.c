@@ -684,12 +684,11 @@ waytator_window_load_preferences(WaytatorWindow *self)
   }
 }
 
-//every window keeps its own copy of the preferences, a stale one would undo this change the next time it saves
-static void
-waytator_window_share_preferences(WaytatorWindow *self)
+//every window keeps its own copy of the preferences, a stale one would undo a change the next time it saves
+void
+waytator_window_reload_preferences(GtkApplication *app,
+                                   WaytatorWindow *except)
 {
-  GtkApplication *app = gtk_window_get_application(GTK_WINDOW(self));
-
   if (app == NULL)
     return;
 
@@ -697,7 +696,7 @@ waytator_window_share_preferences(WaytatorWindow *self)
     WaytatorWindow *other;
     gboolean size_drawer_open;
 
-    if (!WAYTATOR_IS_WINDOW(link->data) || link->data == (gpointer) self)
+    if (!WAYTATOR_IS_WINDOW(link->data) || link->data == (gpointer) except)
       continue;
 
     other = WAYTATOR_WINDOW(link->data);
@@ -804,7 +803,7 @@ waytator_window_save_preferences(WaytatorWindow *self)
     return;
   }
 
-  waytator_window_share_preferences(self);
+  waytator_window_reload_preferences(gtk_window_get_application(GTK_WINDOW(self)), self);
 }
 
 static const char *
@@ -4593,11 +4592,13 @@ waytator_window_ensure_icons_registered(void)
   }
 }
 
-//the capture overlay can show without any window, as with --notify
+//the capture overlay can show without any window, as with --notify, and its icons are waytator's too
 void
 waytator_window_ensure_css_loaded(void)
 {
   static gboolean css_loaded = FALSE;
+
+  waytator_window_ensure_icons_registered();
 
   if (!css_loaded) {
     GtkCssProvider *provider = gtk_css_provider_new();
