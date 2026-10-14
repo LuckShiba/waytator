@@ -382,6 +382,43 @@
   padding: 0;
 }
 
+.open-group menubutton.capture-delay-button > button {
+  min-width: 20px;
+  min-height: 32px;
+  padding: 0 4px;
+  border-radius: 10px;
+  color: white;
+  background: transparent;
+  border-color: transparent;
+  box-shadow: none;
+}
+
+.open-group menubutton.capture-delay-button > button:hover,
+.open-group menubutton.capture-delay-button > button:checked {
+  background: alpha(white, 0.08);
+}
+
+/* a menu button shaped like the other home actions, its button is the part that shows */
+.home-actions menubutton.home-delay > button {
+  min-height: 40px;
+  padding: 0 12px;
+  border-radius: 10px;
+  color: white;
+  font-weight: normal;
+  background: transparent;
+  border-color: transparent;
+  box-shadow: none;
+}
+
+.home-actions menubutton.home-delay > button:hover,
+.home-actions menubutton.home-delay > button:checked {
+  background: alpha(white, 0.08);
+}
+
+.home-actions menubutton.home-delay image {
+  opacity: 0.85;
+}
+
 /* background and blur follow the floating controls settings, see the capture overlay */
 .capture-pill {
   padding: 4px;

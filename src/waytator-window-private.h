@@ -37,6 +37,9 @@ struct _WaytatorWindow {
   GListModel *start_window_controls_children;
   GtkWidget *open_actions;
   GtkButton *capture_button;
+  GtkMenuButton *capture_delay_button;
+  GtkMenuButton *home_delay_button;
+  GtkLabel *home_delay_hint;
   GtkLabel *capture_area_hint;
   GtkLabel *open_hint;
   GtkWidget *file_group;
