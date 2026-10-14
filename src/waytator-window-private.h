@@ -140,7 +140,10 @@ struct _WaytatorWindow {
   gboolean adopt_file_reserved;
   WaytatorSettings settings;
   WaytatorCaptureMode capture_mode;
+  //the preference, which a capture from inside waytator starts out with
   gboolean capture_hide_waytator;
+  //whether the capture under way hides waytator, the box on the overlay changes only this
+  gboolean capture_hide;
   gboolean capture_in_progress;
   gboolean capture_window_was_visible;
   gboolean capture_from_ui;

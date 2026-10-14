@@ -3930,7 +3930,7 @@ waytator_window_capture_ready(GObject      *source_object,
 
   if (waytator_capture_overlay_show(g_steal_pointer(&outputs),
                                     self->capture_mode,
-                                    self->capture_hide_waytator,
+                                    self->capture_hide,
                                     self->capture_from_ui ? waytator_window_capture_retake : NULL,
                                     waytator_window_capture_overlay_done,
                                     self)) {
@@ -3960,8 +3960,7 @@ static void
 waytator_window_take_capture(WaytatorWindow *self,
                              gboolean        wait)
 {
-  //a capture from the command line takes the screen as it is
-  if (self->capture_from_ui && self->capture_hide_waytator)
+  if (self->capture_hide)
     wait |= waytator_window_hide_for_capture(self);
   else
     wait |= waytator_window_restore_after_capture(self);
@@ -3986,10 +3985,8 @@ waytator_window_capture_retake(gboolean            hide_waytator,
   if (self->disposed)
     return;
 
-  //the box doubles as the preference
-  self->capture_hide_waytator = hide_waytator;
-  waytator_window_save_preferences(self);
-
+  //the box is for this capture only, the preference stays as it was
+  self->capture_hide = hide_waytator;
   self->capture_mode = mode;
   self->capture_retake = TRUE;
   waytator_window_take_capture(self, TRUE);
@@ -4007,6 +4004,8 @@ waytator_window_begin_capture(WaytatorWindow     *self,
   self->capture_in_progress = TRUE;
   self->capture_window_was_visible = gtk_widget_get_visible(GTK_WIDGET(self));
   self->capture_from_ui = from_ui;
+  //a capture from the command line takes the screen as it is
+  self->capture_hide = from_ui && self->capture_hide_waytator;
   self->capture_retake = FALSE;
   self->capture_output_name = g_strdup(output_name);
   self->capture_mode = mode;
