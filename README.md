@@ -81,7 +81,7 @@ Add `--notify` to take the screenshot without opening the editor:
 waytator --screenshot --notify
 ```
 
-The screenshot is saved to `~/Pictures/Screenshots`, copied to the clipboard, and a notification offers to open or edit it. A screenshot that opens in the editor is copied as soon as it is taken too, and goes to the same folder when you save it. The folder and the clipboard copy can be changed or turned off in Preferences → Screenshots.
+The screenshot is saved to `~/Pictures/Screenshots`, copied to the clipboard, and a notification offers to open or edit it. A screenshot that opens in the editor is saved and copied the same way as soon as it is taken, and saving your edits updates that file. The folder and the clipboard copy can be changed or turned off in Preferences → Screenshots.
 
 Read from stdin automatically when image data is piped in:
 
