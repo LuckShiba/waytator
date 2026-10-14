@@ -136,7 +136,7 @@ struct _WaytatorWindow {
   gboolean capture_hide_waytator;
   gboolean capture_in_progress;
   gboolean capture_window_was_visible;
-  gboolean capture_offer_hide;
+  gboolean capture_from_ui;
   gboolean capture_retake;
   GPtrArray *capture_hidden_windows;
   char *capture_output_name;

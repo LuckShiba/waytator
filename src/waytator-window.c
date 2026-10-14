@@ -1561,6 +1561,17 @@ waytator_window_screenshot_copy_changed(AdwSwitchRow   *row,
   waytator_window_save_preferences(self);
 }
 
+static void
+waytator_window_capture_hide_changed(AdwSwitchRow   *row,
+                                     GParamSpec     *pspec,
+                                     WaytatorWindow *self)
+{
+  (void) pspec;
+
+  self->capture_hide_waytator = adw_switch_row_get_active(row);
+  waytator_window_save_preferences(self);
+}
+
 static AdwPreferencesPage *
 waytator_window_new_screenshots_page(WaytatorWindow *self)
 {
@@ -1568,6 +1579,7 @@ waytator_window_new_screenshots_page(WaytatorWindow *self)
   AdwPreferencesGroup *group = ADW_PREFERENCES_GROUP(adw_preferences_group_new());
   AdwActionRow *folder_row = ADW_ACTION_ROW(adw_action_row_new());
   AdwSwitchRow *copy_row = ADW_SWITCH_ROW(adw_switch_row_new());
+  AdwSwitchRow *hide_row = ADW_SWITCH_ROW(adw_switch_row_new());
   GtkWidget *choose_button = gtk_button_new_from_icon_name("folder-open-symbolic");
   GtkWidget *clear_button = gtk_button_new_from_icon_name("window-close-symbolic");
 
@@ -1596,8 +1608,15 @@ waytator_window_new_screenshots_page(WaytatorWindow *self)
   adw_switch_row_set_active(copy_row, self->screenshot_copy);
   g_signal_connect(copy_row, "notify::active", G_CALLBACK(waytator_window_screenshot_copy_changed), self);
 
+  adw_preferences_row_set_title(ADW_PREFERENCES_ROW(hide_row), "Hide waytator");
+  adw_action_row_set_subtitle(ADW_ACTION_ROW(hide_row),
+                              "Keep its windows out of captures started in waytator, also switchable while capturing");
+  adw_switch_row_set_active(hide_row, self->capture_hide_waytator);
+  g_signal_connect(hide_row, "notify::active", G_CALLBACK(waytator_window_capture_hide_changed), self);
+
   adw_preferences_group_add(group, GTK_WIDGET(folder_row));
   adw_preferences_group_add(group, GTK_WIDGET(copy_row));
+  adw_preferences_group_add(group, GTK_WIDGET(hide_row));
   adw_preferences_page_add(page, group);
   return page;
 }
@@ -3799,19 +3818,6 @@ waytator_window_restore_after_capture(WaytatorWindow *self)
   return restored;
 }
 
-static gboolean
-waytator_window_any_visible(WaytatorWindow *self)
-{
-  GtkApplication *app = gtk_window_get_application(GTK_WINDOW(self));
-
-  for (GList *link = app != NULL ? gtk_application_get_windows(app) : NULL; link != NULL; link = link->next) {
-    if (WAYTATOR_IS_WINDOW(link->data) && gtk_widget_get_visible(GTK_WIDGET(link->data)))
-      return TRUE;
-  }
-
-  return FALSE;
-}
-
 static void
 waytator_window_finish_capture(WaytatorWindow *self,
                                GdkTexture     *texture,
@@ -3899,7 +3905,7 @@ waytator_window_capture_ready(GObject      *source_object,
   if (waytator_capture_overlay_show(g_steal_pointer(&outputs),
                                     self->capture_mode,
                                     self->capture_hide_waytator,
-                                    self->capture_offer_hide ? waytator_window_capture_retake : NULL,
+                                    self->capture_from_ui ? waytator_window_capture_retake : NULL,
                                     waytator_window_capture_overlay_done,
                                     self)) {
     g_object_ref(self);
@@ -3928,7 +3934,8 @@ static void
 waytator_window_take_capture(WaytatorWindow *self,
                              gboolean        wait)
 {
-  if (self->capture_hide_waytator)
+  //a capture from the command line takes the screen as it is
+  if (self->capture_from_ui && self->capture_hide_waytator)
     wait |= waytator_window_hide_for_capture(self);
   else
     wait |= waytator_window_restore_after_capture(self);
@@ -3959,6 +3966,25 @@ waytator_window_capture_retake(gboolean            hide_waytator,
   waytator_window_take_capture(self, TRUE);
 }
 
+static void
+waytator_window_begin_capture(WaytatorWindow     *self,
+                              WaytatorCaptureMode mode,
+                              const char         *output_name,
+                              gboolean            from_ui)
+{
+  if (self->capture_in_progress)
+    return;
+
+  self->capture_in_progress = TRUE;
+  self->capture_window_was_visible = gtk_widget_get_visible(GTK_WIDGET(self));
+  self->capture_from_ui = from_ui;
+  self->capture_retake = FALSE;
+  self->capture_output_name = g_strdup(output_name);
+  self->capture_mode = mode;
+  waytator_window_take_capture(self, FALSE);
+}
+
+//for the command line, which never hides waytator
 void
 waytator_window_start_capture(WaytatorWindow     *self,
                               WaytatorCaptureMode mode,
@@ -3966,17 +3992,7 @@ waytator_window_start_capture(WaytatorWindow     *self,
 {
   g_return_if_fail(WAYTATOR_IS_WINDOW(self));
 
-  if (self->capture_in_progress)
-    return;
-
-  self->capture_in_progress = TRUE;
-  self->capture_window_was_visible = gtk_widget_get_visible(GTK_WIDGET(self));
-  //hiding waytator is only worth asking about when some of it is on screen
-  self->capture_offer_hide = waytator_window_any_visible(self);
-  self->capture_retake = FALSE;
-  self->capture_output_name = g_strdup(output_name);
-  self->capture_mode = mode;
-  waytator_window_take_capture(self, FALSE);
+  waytator_window_begin_capture(self, mode, output_name, FALSE);
 }
 
 static void
@@ -3986,11 +4002,12 @@ waytator_window_capture_action(GtkWidget  *widget,
 {
   (void) parameter;
 
-  waytator_window_start_capture(WAYTATOR_WINDOW(widget),
+  waytator_window_begin_capture(WAYTATOR_WINDOW(widget),
                                 g_strcmp0(action_name, "win.capture-screen") == 0
                                   ? WAYTATOR_CAPTURE_SCREEN
                                   : WAYTATOR_CAPTURE_AREA,
-                                NULL);
+                                NULL,
+                                TRUE);
 }
 
 static void
@@ -4299,6 +4316,7 @@ waytator_window_init_state(WaytatorWindow *self)
     waytator_window_apply_shortcut(self, i, waytator_shortcuts[i].default_accel);
   self->screenshot_save_dir = waytator_screenshot_default_save_dir();
   self->screenshot_copy = TRUE;
+  self->capture_hide_waytator = TRUE;
   self->capture_hidden_windows = g_ptr_array_new_with_free_func(g_object_unref);
   waytator_window_load_preferences(self);
 
