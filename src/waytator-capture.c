@@ -940,7 +940,6 @@ waytator_capture_frame_to_output(WaytatorCaptureFrame *frame,
   output->y = frame->has_logical_position ? frame->logical_y : frame->y;
   output->width = frame->has_logical_size ? frame->logical_width : MAX(1, width / MAX(1, frame->scale));
   output->height = frame->has_logical_size ? frame->logical_height : MAX(1, height / MAX(1, frame->scale));
-  output->scale = (double) width / output->width;
   return output;
 }
 
@@ -1156,7 +1155,6 @@ waytator_capture_portal_add_output(GPtrArray       *outputs,
   output->y = y;
   output->width = width;
   output->height = height;
-  output->scale = (double) cairo_image_surface_get_width(surface) / width;
   g_ptr_array_add(outputs, output);
 }
 

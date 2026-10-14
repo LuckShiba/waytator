@@ -10,7 +10,6 @@ typedef struct {
   int y;
   int width;
   int height;
-  double scale;             //surface pixels per logical unit
 } WaytatorCaptureOutput;
 
 void waytator_capture_output_free(WaytatorCaptureOutput *output);
