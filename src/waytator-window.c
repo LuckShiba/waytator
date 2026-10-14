@@ -2385,7 +2385,7 @@ waytator_window_update_save_menu(WaytatorWindow *self)
     g_menu_append(self->save_menu, "Save as…", "win.save-as");
   } else {
     g_menu_append(self->save_menu, "Save", "win.save");
-    g_menu_append(self->save_menu, "Save as copy", "win.save-copy");
+    g_menu_append(self->save_menu, "Save a copy…", "win.save-copy");
   }
 }
 
@@ -3110,7 +3110,7 @@ waytator_window_show_save_dialog(WaytatorWindow *self)
     copy_name = g_strdup(self->source_name);
   }
 
-  gtk_file_dialog_set_title(dialog, self->current_file != NULL ? "Save as copy" : "Save image");
+  gtk_file_dialog_set_title(dialog, self->current_file != NULL ? "Save a copy" : "Save image");
   gtk_file_dialog_set_initial_name(dialog, copy_name);
 
   gtk_file_dialog_save(dialog,
