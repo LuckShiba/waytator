@@ -392,6 +392,18 @@ done:
   return status;
 }
 
+//only the instance that stays runs this, one that hands its command line over never sets up gtk.
+//loading a big icon theme like Papirus took most of a second at startup, Adwaita is always there with gtk
+static void
+app_startup(GApplication *app,
+            gpointer      user_data)
+{
+  (void) app;
+  (void) user_data;
+
+  g_object_set(gtk_settings_get_default(), "gtk-icon-theme-name", "Adwaita", NULL);
+}
+
 int
 main(int   argc,
      char *argv[])
@@ -409,10 +421,6 @@ main(int   argc,
     run_argv = stdin_argv;
     run_argc = 2;
   }
-
-  //loading a big icon theme like Papirus took most of a second at startup, Adwaita is always there with gtk
-  if (gtk_init_check())
-    g_object_set(gtk_settings_get_default(), "gtk-icon-theme-name", "Adwaita", NULL);
 
   app = adw_application_new(WAYTATOR_APP_ID,
                              G_APPLICATION_HANDLES_COMMAND_LINE | G_APPLICATION_HANDLES_OPEN);
@@ -433,6 +441,7 @@ main(int   argc,
   gtk_application_set_accels_for_action(GTK_APPLICATION(app), "win.zoom-fit", (const char *[]) { "<Primary>0", NULL });
   gtk_application_set_accels_for_action(GTK_APPLICATION(app), "app.quit", (const char *[]) { "<Primary>q", NULL });
 
+  g_signal_connect(app, "startup", G_CALLBACK(app_startup), NULL);
   g_signal_connect(app, "activate", G_CALLBACK(app_activate), NULL);
   g_signal_connect(app, "open", G_CALLBACK(app_open), NULL);
   g_signal_connect(app, "command-line", G_CALLBACK(app_command_line), NULL);
