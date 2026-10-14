@@ -26,6 +26,9 @@ stdenv.mkDerivation {
 
   strictDeps = true;
 
+  # meson looks up wayland-scanner as a build machine dependency
+  depsBuildBuild = [ pkg-config ];
+
   nativeBuildInputs = [
     meson
     ninja

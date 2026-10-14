@@ -15,15 +15,6 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: cachix/install-nix-action@v31
-      - name: Lock nixpkgs
-        id: lock
-        if: hashFiles('flake.lock') == ''
-        run: nix flake lock
-      - uses: actions/upload-artifact@v7
-        if: steps.lock.outcome == 'success' && matrix.runner == 'ubuntu-latest'
-        with:
-          name: flake-lock
-          path: flake.lock
       - run: nix flake check -L
       - run: nix build -L
       - name: Check wl-copy and tesseract ship with the app
