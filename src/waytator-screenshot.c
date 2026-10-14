@@ -232,6 +232,34 @@ waytator_screenshot_write_file(const char *save_dir,
 }
 
 //encoding a whole screen takes long enough to notice, so this runs off the main thread
+//zlib's fastest level: a big screenshot encodes in a tenth of the time, for a file that is a little bigger
+static GBytes *
+waytator_screenshot_encode_png(GdkTexture *texture)
+{
+  g_autoptr(GdkTextureDownloader) downloader = gdk_texture_downloader_new(texture);
+  g_autoptr(GBytes) pixels = NULL;
+  g_autoptr(GdkPixbuf) pixbuf = NULL;
+  char *buffer = NULL;
+  gsize length = 0;
+  gsize stride = 0;
+
+  //a screenshot is opaque, so there is no alpha to keep
+  gdk_texture_downloader_set_format(downloader, GDK_MEMORY_R8G8B8);
+  pixels = gdk_texture_downloader_download_bytes(downloader, &stride);
+  pixbuf = gdk_pixbuf_new_from_bytes(pixels,
+                                     GDK_COLORSPACE_RGB,
+                                     FALSE,
+                                     8,
+                                     gdk_texture_get_width(texture),
+                                     gdk_texture_get_height(texture),
+                                     stride);
+
+  if (!gdk_pixbuf_save_to_buffer(pixbuf, &buffer, &length, "png", NULL, "compression", "1", NULL))
+    return gdk_texture_save_to_png_bytes(texture);
+
+  return g_bytes_new_take(buffer, length);
+}
+
 static void
 waytator_screenshot_store_thread(GTask        *task,
                                  gpointer      source_object,
@@ -244,7 +272,7 @@ waytator_screenshot_store_thread(GTask        *task,
   (void) source_object;
   (void) cancellable;
 
-  shot->png = gdk_texture_save_to_png_bytes(shot->texture);
+  shot->png = waytator_screenshot_encode_png(shot->texture);
   if (*shot->save_dir != '\0') {
     shot->file = waytator_screenshot_write_file(shot->save_dir, shot->name, shot->png, &error);
     if (shot->file == NULL)
@@ -456,7 +484,7 @@ waytator_screenshot_copy_thread(GTask        *task,
                                 gpointer      task_data,
                                 GCancellable *cancellable)
 {
-  g_autoptr(GBytes) png = gdk_texture_save_to_png_bytes(GDK_TEXTURE(task_data));
+  g_autoptr(GBytes) png = waytator_screenshot_encode_png(GDK_TEXTURE(task_data));
   g_autoptr(GSubprocess) process = NULL;
 
   (void) task;
