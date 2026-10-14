@@ -253,6 +253,13 @@ app_command_line(GApplication            *app,
       } else if (i + 1 < argc && g_strcmp0(arguments[i + 1], "screen") == 0) {
         capture_mode = WAYTATOR_CAPTURE_SCREEN;
         i++;
+      } else if (i + 1 < argc && arguments[i + 1][0] != '-') {
+        //an image cannot go with a capture anyway, so this is most likely a mistyped mode
+        g_application_command_line_printerr(command_line,
+                                            "Unknown capture mode \"%s\", use area or screen\n",
+                                            arguments[i + 1]);
+        status = 1;
+        goto done;
       }
 
       continue;
