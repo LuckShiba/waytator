@@ -392,6 +392,7 @@
   border: 1px solid alpha(white, 0.12);
   border-radius: 14px;
   box-shadow: 0 10px 32px alpha(black, 0.18);
+  backdrop-filter: blur(18px);
 }
 
 .capture-pill togglebutton.flat {
