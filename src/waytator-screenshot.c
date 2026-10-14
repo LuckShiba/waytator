@@ -131,11 +131,12 @@ waytator_screenshot_ensure_folder(const char *save_dir,
   return g_steal_pointer(&folder);
 }
 
-//a name in the folder that nothing uses yet, for a save that writes the file itself
-GFile *
-waytator_screenshot_reserve_file(const char *save_dir,
-                                 const char *name,
-                                 GError    **error)
+//creating the file is what claims the name, so two screenshots taken at once never share one
+static GFileOutputStream *
+waytator_screenshot_create_file(const char *save_dir,
+                                const char *name,
+                                GFile     **file,
+                                GError    **error)
 {
   g_autoptr(GFile) folder = waytator_screenshot_ensure_folder(save_dir, error);
 
@@ -144,14 +145,43 @@ waytator_screenshot_reserve_file(const char *save_dir,
 
   for (int attempt = 0; attempt < 1000; attempt++) {
     g_autofree char *candidate = waytator_screenshot_candidate_name(name, attempt);
-    g_autoptr(GFile) file = g_file_get_child(folder, candidate);
+    g_autoptr(GFile) child = g_file_get_child(folder, candidate);
+    g_autoptr(GError) create_error = NULL;
+    GFileOutputStream *stream = g_file_create(child, G_FILE_CREATE_NONE, NULL, &create_error);
 
-    if (!g_file_query_exists(file, NULL))
-      return g_steal_pointer(&file);
+    if (stream != NULL) {
+      *file = g_steal_pointer(&child);
+      return stream;
+    }
+
+    if (!g_error_matches(create_error, G_IO_ERROR, G_IO_ERROR_EXISTS)) {
+      g_propagate_error(error, g_steal_pointer(&create_error));
+      return NULL;
+    }
   }
 
   g_set_error(error, G_IO_ERROR, G_IO_ERROR_EXISTS, "too many screenshots share the name %s", name);
   return NULL;
+}
+
+//an empty file under a free name, for a save that writes the file itself
+GFile *
+waytator_screenshot_reserve_file(const char *save_dir,
+                                 const char *name,
+                                 GError    **error)
+{
+  g_autoptr(GFile) file = NULL;
+  g_autoptr(GFileOutputStream) stream = waytator_screenshot_create_file(save_dir, name, &file, error);
+
+  if (stream == NULL)
+    return NULL;
+
+  if (!g_output_stream_close(G_OUTPUT_STREAM(stream), NULL, error)) {
+    g_file_delete(file, NULL, NULL);
+    return NULL;
+  }
+
+  return g_steal_pointer(&file);
 }
 
 static GFile *
@@ -160,42 +190,24 @@ waytator_screenshot_write_file(const char *save_dir,
                                GBytes     *png,
                                GError    **error)
 {
-  g_autoptr(GFile) folder = waytator_screenshot_ensure_folder(save_dir, error);
+  g_autoptr(GFile) file = NULL;
+  g_autoptr(GFileOutputStream) stream = waytator_screenshot_create_file(save_dir, name, &file, error);
 
-  if (folder == NULL)
+  if (stream == NULL)
     return NULL;
 
-  for (int attempt = 0; attempt < 1000; attempt++) {
-    g_autofree char *candidate = waytator_screenshot_candidate_name(name, attempt);
-    g_autoptr(GFile) file = g_file_get_child(folder, candidate);
-    g_autoptr(GFileOutputStream) stream = NULL;
-    g_autoptr(GError) create_error = NULL;
-
-    stream = g_file_create(file, G_FILE_CREATE_NONE, NULL, &create_error);
-    if (stream == NULL) {
-      if (g_error_matches(create_error, G_IO_ERROR, G_IO_ERROR_EXISTS))
-        continue;
-
-      g_propagate_error(error, g_steal_pointer(&create_error));
-      return NULL;
-    }
-
-    if (!g_output_stream_write_all(G_OUTPUT_STREAM(stream),
-                                   g_bytes_get_data(png, NULL),
-                                   g_bytes_get_size(png),
-                                   NULL,
-                                   NULL,
-                                   error)
-        || !g_output_stream_close(G_OUTPUT_STREAM(stream), NULL, error)) {
-      g_file_delete(file, NULL, NULL);
-      return NULL;
-    }
-
-    return g_steal_pointer(&file);
+  if (!g_output_stream_write_all(G_OUTPUT_STREAM(stream),
+                                 g_bytes_get_data(png, NULL),
+                                 g_bytes_get_size(png),
+                                 NULL,
+                                 NULL,
+                                 error)
+      || !g_output_stream_close(G_OUTPUT_STREAM(stream), NULL, error)) {
+    g_file_delete(file, NULL, NULL);
+    return NULL;
   }
 
-  g_set_error(error, G_IO_ERROR, G_IO_ERROR_EXISTS, "too many screenshots share the name %s", name);
-  return NULL;
+  return g_steal_pointer(&file);
 }
 
 //encoding a whole screen takes long enough to notice, so this runs off the main thread

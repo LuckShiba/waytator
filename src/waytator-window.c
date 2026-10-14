@@ -2958,7 +2958,7 @@ waytator_window_save_export_ready(GObject      *source_object,
 }
 
 //where every save that is not an overwrite ends up, a first save also makes the file the one being edited
-static void
+static gboolean
 waytator_window_save_to_file(WaytatorWindow *self,
                              GFile          *file)
 {
@@ -2979,7 +2979,7 @@ waytator_window_save_to_file(WaytatorWindow *self,
   if (request == NULL) {
     self->after_save = WAYTATOR_AFTER_SAVE_NONE;
     waytator_window_show_error(self, error->message);
-    return;
+    return FALSE;
   }
 
   g_clear_object(&self->adopt_file);
@@ -2991,6 +2991,7 @@ waytator_window_save_to_file(WaytatorWindow *self,
   task = g_task_new(self, NULL, waytator_window_save_export_ready, g_object_ref(self));
   g_task_set_task_data(task, request, (GDestroyNotify) waytator_export_request_free);
   g_task_run_in_thread(task, waytator_export_run_task);
+  return TRUE;
 }
 
 static void
@@ -3086,7 +3087,9 @@ waytator_window_save_capture_to_folder(WaytatorWindow *self)
     return TRUE;
   }
 
-  waytator_window_save_to_file(self, file);
+  //the reserved file is empty, and a save that never started would leave it behind
+  if (!waytator_window_save_to_file(self, file))
+    g_file_delete(file, NULL, NULL);
   return TRUE;
 }
 
