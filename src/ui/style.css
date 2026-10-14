@@ -414,9 +414,10 @@
   background-image: none;
 }
 
-.capture-pill menubutton.capture-delay > button {
+.capture-pill button.capture-delay-choice {
   min-height: 32px;
-  padding: 0 10px 0 12px;
+  min-width: 0;
+  padding: 0 10px;
   border-radius: 10px;
   color: white;
   background: transparent;
@@ -425,8 +426,7 @@
   box-shadow: none;
 }
 
-.capture-pill menubutton.capture-delay > button:hover,
-.capture-pill menubutton.capture-delay > button:checked {
+.capture-pill button.capture-delay-choice:hover {
   background: alpha(white, 0.08);
 }
 
