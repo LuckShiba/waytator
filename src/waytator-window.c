@@ -2393,7 +2393,9 @@ waytator_window_reset_save_button(WaytatorWindow *self)
   const gboolean can_save = !self->capture_storing
                           && (has_unsaved_changes || (self->texture != NULL && self->never_saved));
 
-  gtk_stack_set_visible_child(self->save_icon_stack, GTK_WIDGET(self->save_default_icon));
+  //the spinner and the tick put the plain icon back themselves once they are done
+  if (!self->save_in_progress && self->save_spinner_timeout_id == 0 && self->save_feedback_timeout_id == 0)
+    gtk_stack_set_visible_child(self->save_icon_stack, GTK_WIDGET(self->save_default_icon));
   gtk_widget_set_sensitive(GTK_WIDGET(self->save_button), can_save);
   gtk_widget_set_sensitive(GTK_WIDGET(self->save_as_button), can_save);
   waytator_window_update_save_menu(self);
@@ -2948,8 +2950,9 @@ waytator_window_save_export_ready(GObject      *source_object,
 
   waytator_window_mark_saved(self);
   self->never_saved = FALSE;
-  waytator_window_adopt_saved_file(self);
+  //the tick goes up first, so taking on the new file does not put the plain icon back in between
   waytator_window_finish_save_feedback(self);
+  waytator_window_adopt_saved_file(self);
   waytator_window_finish_after_save(self);
   g_object_unref(self);
 }
