@@ -1584,22 +1584,13 @@ waytator_capture_portal_handle_response(GDBusConnection *connection,
 
   g_variant_get(parameters, "(u@a{sv})", &response, &results);
 
-  if (response == 1) {
+  //GNOME's portal answers a closed screenshot UI as a failure rather than a cancel, and the UI shows its own errors
+  if (response == 1 || (response != 0 && portal->interactive)) {
     waytator_capture_portal_complete(portal,
                                      NULL,
                                      g_error_new(G_IO_ERROR,
                                                  G_IO_ERROR_CANCELLED,
                                                  "The screenshot was cancelled"));
-    return;
-  }
-
-  //taking it in the desktop's own UI is the permission, so that is not what went wrong
-  if (response != 0 && portal->interactive) {
-    waytator_capture_portal_complete(portal,
-                                     NULL,
-                                     g_error_new_literal(G_IO_ERROR,
-                                                         G_IO_ERROR_FAILED,
-                                                         "The desktop's screenshot tool could not take a screenshot."));
     return;
   }
 
