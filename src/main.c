@@ -128,6 +128,7 @@ app_open(GApplication  *app,
   "                                          e.g. DP-1. Doesn't support GNOME\n" \
   "  --notify                                With --screenshot: save, copy and notify\n" \
   "                                          instead of opening the editor\n" \
+  "  --gapplication-service                 Run as a background application service\n" \
   "  --delay SECONDS                         With --screenshot: wait this many whole\n" \
   "                                          seconds first, at most 300\n" \
   "  --close-on-copy, --no-close-on-copy     Override the \"Close on copy\" preference\n" \
@@ -519,6 +520,9 @@ app_startup(GApplication *app,
   (void) user_data;
 
   g_object_set(gtk_settings_get_default(), "gtk-icon-theme-name", "Adwaita", NULL);
+
+  if ((g_application_get_flags(app) & G_APPLICATION_IS_SERVICE) != 0)
+    g_application_hold(app);
 }
 
 int
