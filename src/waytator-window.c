@@ -3740,41 +3740,28 @@ waytator_window_open_action(GtkWidget  *widget,
 static void
 waytator_window_update_capture_controls(WaytatorWindow *self)
 {
-  static const WaytatorShortcut shortcuts[] = {
-    WAYTATOR_SHORTCUT_CAPTURE_AREA,
-    WAYTATOR_SHORTCUT_CAPTURE_SCREEN,
-  };
-
-  GtkLabel *hints[] = {
-    self->capture_area_hint,
-    self->capture_screen_hint,
-  };
+  const WaytatorShortcut shortcut = WAYTATOR_SHORTCUT_CAPTURE_AREA;
+  const char *accelerator;
+  g_autofree char *label = NULL;
+  g_autofree char *tooltip = NULL;
+  guint keyval;
+  GdkModifierType modifiers;
 
   if (self->capture_button == NULL)
     return;
 
-  for (guint i = 0; i < G_N_ELEMENTS(shortcuts); i++) {
-    const char *accelerator = waytator_window_shortcut_accel(self, shortcuts[i]);
-    g_autofree char *label = NULL;
-    guint keyval;
-    GdkModifierType modifiers;
+  //a key that an earlier shortcut already took would be a lie
+  accelerator = waytator_window_shortcut_accel(self, shortcut);
+  if (waytator_window_parse_accelerator(accelerator, &keyval, &modifiers)
+      && waytator_window_shortcut_conflict(self, shortcut, TRUE) < 0)
+    label = gtk_accelerator_get_label(gdk_keyval_to_upper(keyval), modifiers);
 
-    //a key that an earlier shortcut already took would be a lie
-    if (waytator_window_parse_accelerator(accelerator, &keyval, &modifiers)
-        && waytator_window_shortcut_conflict(self, shortcuts[i], TRUE) < 0)
-      label = gtk_accelerator_get_label(gdk_keyval_to_upper(keyval), modifiers);
-
-    gtk_label_set_text(hints[i], label != NULL ? label : "");
-
-    //the camera always starts with an area, the overlay is where a screen can be picked instead
-    if (shortcuts[i] == WAYTATOR_SHORTCUT_CAPTURE_AREA) {
-      g_autofree char *tooltip = label != NULL
-                               ? g_strdup_printf("%s (%s)", waytator_shortcuts[shortcuts[i]].title, label)
-                               : g_strdup(waytator_shortcuts[shortcuts[i]].title);
-
-      gtk_widget_set_tooltip_text(GTK_WIDGET(self->capture_button), tooltip);
-    }
-  }
+  //capturing always starts with an area, the overlay is where a screen can be picked instead
+  gtk_label_set_text(self->capture_area_hint, label != NULL ? label : "");
+  tooltip = label != NULL
+          ? g_strdup_printf("%s (%s)", waytator_shortcuts[shortcut].title, label)
+          : g_strdup(waytator_shortcuts[shortcut].title);
+  gtk_widget_set_tooltip_text(GTK_WIDGET(self->capture_button), tooltip);
 }
 
 //every waytator window, so none of them ends up in the picture
@@ -4196,7 +4183,6 @@ waytator_window_bind_template_children(GtkWidgetClass *widget_class)
   gtk_widget_class_bind_template_child(widget_class, WaytatorWindow, open_actions);
   gtk_widget_class_bind_template_child(widget_class, WaytatorWindow, capture_button);
   gtk_widget_class_bind_template_child(widget_class, WaytatorWindow, capture_area_hint);
-  gtk_widget_class_bind_template_child(widget_class, WaytatorWindow, capture_screen_hint);
   gtk_widget_class_bind_template_child(widget_class, WaytatorWindow, open_hint);
   gtk_widget_class_bind_template_child(widget_class, WaytatorWindow, file_group);
   gtk_widget_class_bind_template_child(widget_class, WaytatorWindow, file_button);

@@ -23,8 +23,6 @@
     <file>ui/icons/stroke-medium-symbolic.svg</file>
     <file>ui/icons/stroke-thick-symbolic.svg</file>
     <file>ui/icons/chevron-up-symbolic.svg</file>
-    <file>ui/icons/capture-area-symbolic.svg</file>
-    <file>ui/icons/capture-screen-symbolic.svg</file>
   </gresource>
   <gresource prefix="/dev/faetalize/waytator/icons/hicolor/scalable/actions">
     <file alias="waytator-pan-symbolic.svg">ui/icons/hand-openyay-symbolic.svg</file>
@@ -47,8 +45,6 @@
     <file alias="waytator-stroke-medium-symbolic.svg">ui/icons/stroke-medium-symbolic.svg</file>
     <file alias="waytator-stroke-thick-symbolic.svg">ui/icons/stroke-thick-symbolic.svg</file>
     <file alias="waytator-chevron-up-symbolic.svg">ui/icons/chevron-up-symbolic.svg</file>
-    <file alias="waytator-capture-area-symbolic.svg">ui/icons/capture-area-symbolic.svg</file>
-    <file alias="waytator-capture-screen-symbolic.svg">ui/icons/capture-screen-symbolic.svg</file>
   </gresource>
   <gresource prefix="/dev/faetalize/waytator/icons/hicolor/128x128/apps">
     <file alias="dev.faetalize.waytator.png">ui/icons/icon.png</file>

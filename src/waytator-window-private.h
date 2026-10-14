@@ -37,7 +37,6 @@ struct _WaytatorWindow {
   GtkWidget *open_actions;
   GtkButton *capture_button;
   GtkLabel *capture_area_hint;
-  GtkLabel *capture_screen_hint;
   GtkLabel *open_hint;
   GtkWidget *file_group;
   GtkMenuButton *file_button;

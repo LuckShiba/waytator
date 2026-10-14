@@ -72,13 +72,13 @@
 
                             <child>
                               <object class="GtkImage">
-                                <property name="icon-name">waytator-capture-area-symbolic</property>
+                                <property name="icon-name">camera-photo-symbolic</property>
                               </object>
                             </child>
 
                             <child>
                               <object class="GtkLabel">
-                                <property name="label">Capture area</property>
+                                <property name="label">Capture</property>
                                 <property name="xalign">0</property>
                                 <property name="hexpand">True</property>
                               </object>
@@ -98,7 +98,7 @@
 
                     <child>
                       <object class="GtkButton">
-                        <property name="action-name">win.capture-screen</property>
+                        <property name="sensitive">False</property>
                         <style>
                           <class name="home-action"/>
                         </style>
@@ -108,20 +108,21 @@
 
                             <child>
                               <object class="GtkImage">
-                                <property name="icon-name">waytator-capture-screen-symbolic</property>
+                                <property name="icon-name">media-record-symbolic</property>
                               </object>
                             </child>
 
                             <child>
                               <object class="GtkLabel">
-                                <property name="label">Capture screen</property>
+                                <property name="label">Record</property>
                                 <property name="xalign">0</property>
                                 <property name="hexpand">True</property>
                               </object>
                             </child>
 
                             <child>
-                              <object class="GtkLabel" id="capture_screen_hint">
+                              <object class="GtkLabel">
+                                <property name="label">Soon</property>
                                 <style>
                                   <class name="home-hint"/>
                                 </style>

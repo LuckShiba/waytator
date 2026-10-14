@@ -37,6 +37,11 @@
   background: alpha(white, 0.14);
 }
 
+.home-action:disabled {
+  filter: none;
+  opacity: 0.45;
+}
+
 .home-action image {
   opacity: 0.85;
 }
