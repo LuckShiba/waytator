@@ -9,3 +9,5 @@
 /test_scale
 *.o
 /simulated-touch/
+/result
+/result-*
