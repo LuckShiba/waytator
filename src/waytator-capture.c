@@ -261,8 +261,14 @@ waytator_capture_upright_surface(cairo_surface_t *source,
   const int source_height = cairo_image_surface_get_height(source);
   const int width = sideways ? source_height : source_width;
   const int height = sideways ? source_width : source_height;
-  const guchar *source_pixels;
-  gsize source_stride;
+  //which upright column a column of the result shows
+  const int column_start = flipped ? width - 1 : 0;
+  const int column_step = flipped ? -1 : 1;
+  const guint32 *source_pixels;
+  gssize source_row;
+  gssize start;
+  gssize step_x;
+  gssize step_y;
   cairo_surface_t *surface;
   guchar *pixels;
   gsize stride;
@@ -275,41 +281,43 @@ waytator_capture_upright_surface(cairo_surface_t *source,
   if (surface == NULL)
     return NULL;
 
-  source_pixels = cairo_image_surface_get_data(source);
-  source_stride = cairo_image_surface_get_stride(source);
+  source_pixels = (const guint32 *) (const void *) cairo_image_surface_get_data(source);
+  source_row = cairo_image_surface_get_stride(source) / 4;
   pixels = cairo_image_surface_get_data(surface);
   stride = cairo_image_surface_get_stride(surface);
 
+  //the source pixel moves by a fixed step for each pixel across and each row down, so the
+  //transform is worked out once here rather than for every pixel
+  switch (rotation) {
+  case WL_OUTPUT_TRANSFORM_90:
+    start = (source_height - 1 - column_start) * source_row;
+    step_x = -column_step * source_row;
+    step_y = 1;
+    break;
+  case WL_OUTPUT_TRANSFORM_180:
+    start = (source_height - 1) * source_row + source_width - 1 - column_start;
+    step_x = -column_step;
+    step_y = -source_row;
+    break;
+  case WL_OUTPUT_TRANSFORM_270:
+    start = column_start * source_row + source_width - 1;
+    step_x = column_step * source_row;
+    step_y = -1;
+    break;
+  default:
+    start = column_start;
+    step_x = column_step;
+    step_y = source_row;
+    break;
+  }
+
   for (y = 0; y < height; y++) {
     guint32 *dst = (guint32 *) (void *) (pixels + (gsize) y * stride);
+    const guint32 *src = source_pixels + start + y * step_y;
     int x;
 
-    for (x = 0; x < width; x++) {
-      const int upright_x = flipped ? width - 1 - x : x;
-      int source_x;
-      int source_y;
-
-      switch (rotation) {
-      case WL_OUTPUT_TRANSFORM_90:
-        source_x = y;
-        source_y = source_height - 1 - upright_x;
-        break;
-      case WL_OUTPUT_TRANSFORM_180:
-        source_x = source_width - 1 - upright_x;
-        source_y = source_height - 1 - y;
-        break;
-      case WL_OUTPUT_TRANSFORM_270:
-        source_x = source_width - 1 - y;
-        source_y = upright_x;
-        break;
-      default:
-        source_x = upright_x;
-        source_y = y;
-        break;
-      }
-
-      dst[x] = ((const guint32 *) (const void *) (source_pixels + (gsize) source_y * source_stride))[source_x];
-    }
+    for (x = 0; x < width; x++, src += step_x)
+      dst[x] = *src;
   }
 
   cairo_surface_mark_dirty(surface);
