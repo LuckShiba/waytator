@@ -45,10 +45,9 @@ waytator_export_options(const char  *format,
     return;
   }
 
-  //the strongest level took seconds on a big image for a file only a little smaller
   if (g_strcmp0(format, "png") == 0) {
     option_keys[0] = "compression";
-    option_values[0] = "1";
+    option_values[0] = WAYTATOR_PNG_COMPRESSION;
   }
 }
 

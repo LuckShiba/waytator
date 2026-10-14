@@ -1,6 +1,7 @@
 #include "waytator-screenshot.h"
 
 #include "waytator-capture-overlay.h"
+#include "waytator-export.h"
 #include "waytator-settings.h"
 
 #include <string.h>
@@ -209,7 +210,6 @@ waytator_screenshot_write_file(const char *save_dir,
 }
 
 //encoding a whole screen takes long enough to notice, so this runs off the main thread
-//zlib's fastest level: a big screenshot encodes in a tenth of the time, for a file that is a little bigger
 static GBytes *
 waytator_screenshot_encode_png(GdkTexture *texture)
 {
@@ -231,7 +231,7 @@ waytator_screenshot_encode_png(GdkTexture *texture)
                                      gdk_texture_get_height(texture),
                                      stride);
 
-  if (!gdk_pixbuf_save_to_buffer(pixbuf, &buffer, &length, "png", NULL, "compression", "1", NULL))
+  if (!gdk_pixbuf_save_to_buffer(pixbuf, &buffer, &length, "png", NULL, "compression", WAYTATOR_PNG_COMPRESSION, NULL))
     return gdk_texture_save_to_png_bytes(texture);
 
   return g_bytes_new_take(buffer, length);
