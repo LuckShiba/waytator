@@ -29,9 +29,9 @@ yay -S waytator
 
 `meson` - `ninja` - `pkg-config` - `gtk4` - `libadwaita-1` - `gtk4-layer-shell` - `wayland` - `wayland-protocols` - `gcc`/`clang`/any C compiler
 
-2) Required runtime dependency:
+2) Required runtime dependencies:
 
-`wl-clipboard` for clipboard support
+`wl-clipboard` for clipboard support - `adwaita-icon-theme` for icons (most distributions install it with `gtk4`)
 
 3) Recommended runtime dependency:
 
