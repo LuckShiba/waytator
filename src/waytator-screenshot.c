@@ -369,13 +369,40 @@ waytator_screenshot_wait_over(WaytatorScreenshot *shot)
   waytator_screenshot_free(shot);
 }
 
+static void
+waytator_screenshot_withdrawn(GObject      *source_object,
+                              GAsyncResult *result,
+                              gpointer      user_data)
+{
+  g_autoptr(GVariant) reply = g_dbus_connection_call_finish(G_DBUS_CONNECTION(source_object), result, NULL);
+
+  waytator_screenshot_wait_over(user_data);
+}
+
+//nobody is listening for its buttons after this, so the notification goes too rather than stay with buttons that do nothing
 static gboolean
 waytator_screenshot_wait_timed_out(gpointer user_data)
 {
   WaytatorScreenshot *shot = user_data;
 
   shot->wait_timeout_id = 0;
-  waytator_screenshot_wait_over(shot);
+  g_dbus_connection_signal_unsubscribe(shot->connection, shot->action_subscription);
+  g_dbus_connection_signal_unsubscribe(shot->connection, shot->closed_subscription);
+  shot->action_subscription = 0;
+  shot->closed_subscription = 0;
+  //quitting before the daemon has the request would lose it
+  g_dbus_connection_call(shot->connection,
+                         WAYTATOR_NOTIFICATIONS_NAME,
+                         WAYTATOR_NOTIFICATIONS_PATH,
+                         WAYTATOR_NOTIFICATIONS_NAME,
+                         "CloseNotification",
+                         g_variant_new("(u)", shot->notification_id),
+                         NULL,
+                         G_DBUS_CALL_FLAGS_NONE,
+                         -1,
+                         NULL,
+                         waytator_screenshot_withdrawn,
+                         shot);
   return G_SOURCE_REMOVE;
 }
 
