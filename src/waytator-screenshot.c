@@ -278,6 +278,22 @@ waytator_screenshot_wait_timed_out(gpointer user_data)
 }
 
 static void
+waytator_screenshot_opened(GObject      *source_object,
+                           GAsyncResult *result,
+                           gpointer      user_data)
+{
+  WaytatorScreenshot *shot = user_data;
+  g_autoptr(GError) error = NULL;
+
+  (void) source_object;
+
+  if (!g_app_info_launch_default_for_uri_finish(result, &error))
+    g_warning("Could not open the screenshot: %s", error->message);
+
+  waytator_screenshot_wait_over(shot);
+}
+
+static void
 waytator_screenshot_action_invoked(GDBusConnection *connection,
                                    const char      *sender_name,
                                    const char      *object_path,
@@ -303,11 +319,19 @@ waytator_screenshot_action_invoked(GDBusConnection *connection,
   if (g_strcmp0(action, "open") == 0 && shot->file != NULL) {
     g_autofree char *uri = g_file_get_uri(shot->file);
 
-    g_app_info_launch_default_for_uri_async(uri, NULL, NULL, NULL, NULL);
-  } else {
-    waytator_screenshot_edit(shot);
+    //the viewer is started over the bus, quitting before it answers would cancel that
+    g_dbus_connection_signal_unsubscribe(shot->connection, shot->action_subscription);
+    g_dbus_connection_signal_unsubscribe(shot->connection, shot->closed_subscription);
+    shot->action_subscription = 0;
+    shot->closed_subscription = 0;
+    if (shot->wait_timeout_id != 0)
+      g_source_remove(shot->wait_timeout_id);
+    shot->wait_timeout_id = 0;
+    g_app_info_launch_default_for_uri_async(uri, NULL, NULL, waytator_screenshot_opened, shot);
+    return;
   }
 
+  waytator_screenshot_edit(shot);
   waytator_screenshot_wait_over(shot);
 }
 
