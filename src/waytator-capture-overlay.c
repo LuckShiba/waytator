@@ -24,6 +24,7 @@ struct _WaytatorCaptureView {
   GtkWidget *pill;
   GtkToggleButton *area_button;
   GtkToggleButton *screen_button;
+  GtkPopover *delay_popover;
   GtkLabel *hint_label;
   gboolean hovered;
   gboolean selecting;
@@ -41,6 +42,7 @@ struct _WaytatorCaptureOverlay {
   WaytatorCaptureMode mode;
   gboolean updating;
   gboolean closed;
+  gboolean offer_hide;
   gboolean hide_waytator;
   WaytatorCaptureOverlayRetakeCallback retake;
   WaytatorCaptureOverlayCallback callback;
@@ -186,7 +188,20 @@ waytator_capture_overlay_hide_toggled(GtkCheckButton         *button,
                                       WaytatorCaptureOverlay *overlay)
 {
   if (waytator_capture_overlay_close(overlay))
-    overlay->retake(gtk_check_button_get_active(button), overlay->mode, overlay->user_data);
+    overlay->retake(gtk_check_button_get_active(button), overlay->mode, 0, overlay->user_data);
+}
+
+//the frozen frame is from before the wait, so the overlay goes and a new one is taken once it is over
+static void
+waytator_capture_overlay_delay_clicked(GtkButton           *button,
+                                       WaytatorCaptureView *view)
+{
+  WaytatorCaptureOverlay *overlay = view->overlay;
+  const guint seconds = GPOINTER_TO_UINT(g_object_get_data(G_OBJECT(button), "seconds"));
+
+  gtk_popover_popdown(view->delay_popover);
+  if (waytator_capture_overlay_close(overlay))
+    overlay->retake(overlay->hide_waytator, overlay->mode, seconds, overlay->user_data);
 }
 
 static void
@@ -597,6 +612,39 @@ waytator_capture_overlay_append_separator(WaytatorCaptureView *view)
 }
 
 static void
+waytator_capture_overlay_append_delay(WaytatorCaptureView *view)
+{
+  static const guint delays[] = { 1, 3, 5, 10 };
+  GtkWidget *button = gtk_menu_button_new();
+  GtkWidget *content = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
+  GtkWidget *items = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
+
+  gtk_box_append(GTK_BOX(content), gtk_image_new_from_icon_name("alarm-symbolic"));
+  gtk_box_append(GTK_BOX(content), gtk_label_new("Delay"));
+  gtk_menu_button_set_child(GTK_MENU_BUTTON(button), content);
+  gtk_menu_button_set_always_show_arrow(GTK_MENU_BUTTON(button), TRUE);
+  gtk_widget_set_focusable(button, FALSE);
+  gtk_widget_add_css_class(button, "capture-delay");
+
+  for (guint i = 0; i < G_N_ELEMENTS(delays); i++) {
+    g_autofree char *label = g_strdup_printf(delays[i] == 1 ? "%u second" : "%u seconds", delays[i]);
+    GtkWidget *item = gtk_button_new_with_label(label);
+
+    gtk_widget_add_css_class(item, "flat");
+    gtk_label_set_xalign(GTK_LABEL(gtk_button_get_child(GTK_BUTTON(item))), 0.0);
+    g_object_set_data(G_OBJECT(item), "seconds", GUINT_TO_POINTER(delays[i]));
+    g_signal_connect(item, "clicked", G_CALLBACK(waytator_capture_overlay_delay_clicked), view);
+    gtk_box_append(GTK_BOX(items), item);
+  }
+
+  view->delay_popover = GTK_POPOVER(gtk_popover_new());
+  gtk_popover_set_child(view->delay_popover, items);
+  gtk_popover_set_position(view->delay_popover, GTK_POS_TOP);
+  gtk_menu_button_set_popover(GTK_MENU_BUTTON(button), GTK_WIDGET(view->delay_popover));
+  gtk_box_append(GTK_BOX(view->pill), button);
+}
+
+static void
 waytator_capture_overlay_build_pill(WaytatorCaptureView *view)
 {
   view->pill = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 4);
@@ -610,7 +658,7 @@ waytator_capture_overlay_build_pill(WaytatorCaptureView *view)
   gtk_toggle_button_set_group(view->screen_button, view->area_button);
   waytator_capture_overlay_append_separator(view);
 
-  if (view->overlay->retake != NULL) {
+  if (view->overlay->offer_hide) {
     GtkWidget *hide_button = gtk_check_button_new_with_label("Hide waytator");
 
     gtk_check_button_set_active(GTK_CHECK_BUTTON(hide_button), view->overlay->hide_waytator);
@@ -619,6 +667,9 @@ waytator_capture_overlay_build_pill(WaytatorCaptureView *view)
     gtk_box_append(GTK_BOX(view->pill), hide_button);
     waytator_capture_overlay_append_separator(view);
   }
+
+  waytator_capture_overlay_append_delay(view);
+  waytator_capture_overlay_append_separator(view);
 
   view->hint_label = GTK_LABEL(gtk_label_new(NULL));
   gtk_widget_add_css_class(GTK_WIDGET(view->hint_label), "capture-hint");
@@ -638,6 +689,14 @@ waytator_capture_overlay_key_pressed(GtkEventControllerKey  *controller,
 
   if (keyval != GDK_KEY_Escape)
     return GDK_EVENT_PROPAGATE;
+
+  //escape in the delay menu only closes the menu
+  for (guint i = 0; i < overlay->views->len; i++) {
+    WaytatorCaptureView *view = g_ptr_array_index(overlay->views, i);
+
+    if (gtk_widget_get_visible(GTK_WIDGET(view->delay_popover)))
+      return GDK_EVENT_PROPAGATE;
+  }
 
   waytator_capture_overlay_finish(overlay, NULL);
   return GDK_EVENT_STOP;
@@ -731,6 +790,7 @@ waytator_capture_overlay_add_window(WaytatorCaptureOverlay *overlay,
 gboolean
 waytator_capture_overlay_show(GPtrArray                           *outputs,
                               WaytatorCaptureMode                  mode,
+                              gboolean                             offer_hide,
                               gboolean                             hide_waytator,
                               WaytatorCaptureOverlayRetakeCallback retake,
                               WaytatorCaptureOverlayCallback       callback,
@@ -744,6 +804,7 @@ waytator_capture_overlay_show(GPtrArray                           *outputs,
   overlay->windows = g_ptr_array_new();
   overlay->views = g_ptr_array_new();
   overlay->pill_style = waytator_capture_overlay_new_pill_style();
+  overlay->offer_hide = offer_hide;
   overlay->hide_waytator = hide_waytator;
   overlay->retake = retake;
   overlay->callback = callback;

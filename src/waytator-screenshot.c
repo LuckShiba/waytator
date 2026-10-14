@@ -16,6 +16,9 @@ typedef struct {
   GApplication *app;
   WaytatorCaptureMode mode;
   char *output_name;
+  //set when the overlay asked for a new frame, which brings the overlay back rather than finish the capture
+  gboolean retake;
+  guint delay_id;
   WaytatorScreenshotEditFunc edit;
   gpointer user_data;
   GdkTexture *texture;
@@ -60,6 +63,8 @@ waytator_screenshot_free(WaytatorScreenshot *shot)
     g_dbus_connection_signal_unsubscribe(shot->connection, shot->closed_subscription);
   if (shot->wait_timeout_id != 0)
     g_source_remove(shot->wait_timeout_id);
+  if (shot->delay_id != 0)
+    g_source_remove(shot->delay_id);
 
   g_clear_object(&shot->connection);
   g_clear_object(&shot->texture);
@@ -692,6 +697,11 @@ waytator_screenshot_overlay_done(GdkTexture         *texture,
     waytator_screenshot_captured(shot, texture);
 }
 
+static void waytator_screenshot_overlay_retake(gboolean            hide_waytator,
+                                               WaytatorCaptureMode mode,
+                                               guint               delay_seconds,
+                                               gpointer            user_data);
+
 static void
 waytator_screenshot_outputs_ready(GObject      *source_object,
                                   GAsyncResult *result,
@@ -700,7 +710,7 @@ waytator_screenshot_outputs_ready(GObject      *source_object,
   WaytatorScreenshot *shot = user_data;
   g_autoptr(GError) error = NULL;
   g_autoptr(GPtrArray) outputs = waytator_capture_outputs_finish(result, &error);
-  WaytatorCaptureOutput *output;
+  WaytatorCaptureOutput *output = NULL;
 
   (void) source_object;
 
@@ -712,7 +722,8 @@ waytator_screenshot_outputs_ready(GObject      *source_object,
     return;
   }
 
-  output = waytator_capture_pick_output(outputs, shot->mode, shot->output_name, &error);
+  if (!shot->retake)
+    output = waytator_capture_pick_output(outputs, shot->mode, shot->output_name, &error);
   if (error != NULL) {
     waytator_screenshot_failed(shot, error);
     return;
@@ -728,7 +739,8 @@ waytator_screenshot_outputs_ready(GObject      *source_object,
   if (waytator_capture_overlay_show(g_steal_pointer(&outputs),
                                     shot->mode,
                                     FALSE,
-                                    NULL,
+                                    FALSE,
+                                    waytator_screenshot_overlay_retake,
                                     waytator_screenshot_overlay_done,
                                     shot))
     return;
@@ -740,11 +752,51 @@ waytator_screenshot_outputs_ready(GObject      *source_object,
   waytator_screenshot_failed(shot, error);
 }
 
+static gboolean
+waytator_screenshot_take(gpointer user_data)
+{
+  WaytatorScreenshot *shot = user_data;
+
+  shot->delay_id = 0;
+  waytator_capture_outputs_async(NULL, waytator_screenshot_outputs_ready, shot);
+  return G_SOURCE_REMOVE;
+}
+
+//waits for the delay, or for the overlay of a retake to leave the screen
+static void
+waytator_screenshot_take_after(WaytatorScreenshot *shot,
+                               guint               delay_ms)
+{
+  if (delay_ms == 0) {
+    waytator_screenshot_take(shot);
+    return;
+  }
+
+  shot->delay_id = g_timeout_add(delay_ms, waytator_screenshot_take, shot);
+}
+
+//only a delay brings this here, there is no hide box without a window to hide
+static void
+waytator_screenshot_overlay_retake(gboolean            hide_waytator,
+                                   WaytatorCaptureMode mode,
+                                   guint               delay_seconds,
+                                   gpointer            user_data)
+{
+  WaytatorScreenshot *shot = user_data;
+
+  (void) hide_waytator;
+
+  shot->mode = mode;
+  shot->retake = TRUE;
+  waytator_screenshot_take_after(shot, MAX(delay_seconds * 1000, WAYTATOR_CAPTURE_SETTLE_MS));
+}
+
 //captures without showing a window: the result is saved, copied and announced, edit is how it reaches the editor
 void
 waytator_screenshot_capture_background(GApplication              *app,
                                        WaytatorCaptureMode        mode,
                                        const char                *output_name,
+                                       guint                      delay_seconds,
                                        WaytatorScreenshotEditFunc edit,
                                        gpointer                   user_data)
 {
@@ -759,5 +811,5 @@ waytator_screenshot_capture_background(GApplication              *app,
     shot->connection = g_object_ref(g_application_get_dbus_connection(app));
   g_application_hold(app);
 
-  waytator_capture_outputs_async(NULL, waytator_screenshot_outputs_ready, shot);
+  waytator_screenshot_take_after(shot, delay_seconds * 1000);
 }

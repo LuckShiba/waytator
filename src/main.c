@@ -6,6 +6,8 @@
 #include "waytator-window.h"
 
 #define WAYTATOR_APP_ID "dev.faetalize.waytator"
+//five minutes, longer than anyone needs to get the screen ready
+#define WAYTATOR_MAX_CAPTURE_DELAY 300
 
 static GBytes *
 app_read_stream_bytes(GInputStream *stream,
@@ -142,6 +144,8 @@ app_open(GApplication  *app,
   "                                          e.g. DP-1\n" \
   "  --notify                                With --screenshot: save, copy and notify\n" \
   "                                          instead of opening the editor\n" \
+  "  --delay SECONDS                         With --screenshot: wait this many whole\n" \
+  "                                          seconds first, at most 300\n" \
   "  --close-on-copy, --no-close-on-copy     Override the \"Close on copy\" preference\n" \
   "  --close-window-shortcut SHORTCUT        Override a shortcut for this launch\n" \
   "  --copy-shortcut SHORTCUT\n" \
@@ -182,6 +186,29 @@ app_find_shortcut_option(const char *argument)
   return -1;
 }
 
+//whole seconds written out in digits, so a sign, a decimal point or a number that would overflow never gets in
+static gboolean
+app_parse_delay(const char *text,
+                guint      *seconds)
+{
+  guint value = 0;
+
+  if (*text == '\0')
+    return FALSE;
+
+  for (const char *c = text; *c != '\0'; c++) {
+    if (!g_ascii_isdigit(*c))
+      return FALSE;
+
+    value = value * 10 + (guint) (*c - '0');
+    if (value > WAYTATOR_MAX_CAPTURE_DELAY)
+      return FALSE;
+  }
+
+  *seconds = value;
+  return TRUE;
+}
+
 static int
 app_command_line(GApplication            *app,
                  GApplicationCommandLine *command_line,
@@ -196,6 +223,8 @@ app_command_line(GApplication            *app,
   WaytatorCaptureMode capture_mode = WAYTATOR_CAPTURE_AREA;
   const char *capture_screen = NULL;
   gboolean capture_area_given = FALSE;
+  const char *delay_text = NULL;
+  guint delay_seconds = 0;
   int close_on_copy = -1;
   const char *shortcuts[G_N_ELEMENTS(app_shortcut_options)] = { NULL };
   const char *stdin_name = "stdin.png";
@@ -270,6 +299,27 @@ app_command_line(GApplication            *app,
       continue;
     }
 
+    if (g_strcmp0(arguments[i], "--delay") == 0) {
+      if (i + 1 >= argc) {
+        g_application_command_line_printerr(command_line,
+                                            "Missing value for --delay\n");
+        status = 1;
+        goto done;
+      }
+
+      delay_text = arguments[++i];
+      if (!app_parse_delay(delay_text, &delay_seconds)) {
+        g_application_command_line_printerr(command_line,
+                                            "--delay takes a whole number of seconds from 0 to %d, not \"%s\"\n",
+                                            WAYTATOR_MAX_CAPTURE_DELAY,
+                                            delay_text);
+        status = 1;
+        goto done;
+      }
+
+      continue;
+    }
+
     if (g_strcmp0(arguments[i], "--screen") == 0) {
       if (i + 1 >= argc) {
         g_application_command_line_printerr(command_line,
@@ -339,6 +389,13 @@ app_command_line(GApplication            *app,
     capture_mode = WAYTATOR_CAPTURE_SCREEN;
   }
 
+  if (delay_text != NULL && !screenshot) {
+    g_application_command_line_printerr(command_line,
+                                        "--delay only works with --screenshot\n");
+    status = 1;
+    goto done;
+  }
+
   if (notify && !screenshot) {
     g_application_command_line_printerr(command_line,
                                         "--notify only works with --screenshot\n");
@@ -348,7 +405,7 @@ app_command_line(GApplication            *app,
 
   //no window at all here, one only appears if the notification is used to ask for it
   if (notify) {
-    waytator_screenshot_capture_background(app, capture_mode, capture_screen, app_edit_screenshot, app);
+    waytator_screenshot_capture_background(app, capture_mode, capture_screen, delay_seconds, app_edit_screenshot, app);
     goto done;
   }
 
@@ -366,7 +423,7 @@ app_command_line(GApplication            *app,
 
   //the window shows itself once the capture is over
   if (screenshot) {
-    waytator_window_start_capture(window, capture_mode, capture_screen);
+    waytator_window_start_capture(window, capture_mode, capture_screen, delay_seconds);
     goto done;
   }
 

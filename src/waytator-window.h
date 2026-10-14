@@ -25,7 +25,8 @@ gboolean waytator_window_is_empty(WaytatorWindow *self);
 WaytatorWindow *waytator_window_for_new_image(GtkApplication *app);
 void waytator_window_start_capture(WaytatorWindow     *self,
                                    WaytatorCaptureMode mode,
-                                   const char         *output_name);
+                                   const char         *output_name,
+                                   guint               delay_seconds);
 gboolean waytator_window_shortcut_is_valid(const char *shortcut);
 void waytator_window_ensure_css_loaded(void);
 void waytator_window_clear_overrides(WaytatorWindow *self);

@@ -34,6 +34,7 @@ void waytator_screenshot_store(GdkTexture                  *texture,
 void waytator_screenshot_capture_background(GApplication              *app,
                                             WaytatorCaptureMode        mode,
                                             const char                *output_name,
+                                            guint                      delay_seconds,
                                             WaytatorScreenshotEditFunc edit,
                                             gpointer                   user_data);
 

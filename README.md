@@ -75,6 +75,8 @@ waytator --screenshot screen   # a whole screen
 
 The screen freezes while you choose, and `Esc` or a right click cancels. With more than one screen, `--screenshot screen` lets you click the one you want, and `--screenshot --screen DP-1` takes that one straight away. The same captures are available inside the app, from the camera button next to Open.
 
+To get a menu or a tooltip on screen first, add `--delay 3` to wait that many seconds before the screen freezes (whole seconds, up to 300). Once the screen is frozen, Delay in the bar at the bottom waits 1, 3, 5 or 10 seconds and freezes it again.
+
 Add `--notify` to take the screenshot without opening the editor:
 
 ```bash

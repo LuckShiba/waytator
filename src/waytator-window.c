@@ -16,8 +16,6 @@ G_DEFINE_FINAL_TYPE(WaytatorWindow, waytator_window, ADW_TYPE_APPLICATION_WINDOW
 
 #define WAYTATOR_WINDOW_STYLE_PROVIDER_PRIORITY (GTK_STYLE_PROVIDER_PRIORITY_USER + 1)
 #define WAYTATOR_RESOURCE_PREFIX "/dev/faetalize/waytator"
-//long enough for the compositor to take the window off the screen before the frame is grabbed
-#define WAYTATOR_CAPTURE_HIDE_DELAY_MS 300
 
 static void waytator_window_clear_ocr_results(WaytatorWindow *self);
 static void waytator_window_set_ocr_panel_visible(WaytatorWindow *self,
@@ -3888,6 +3886,7 @@ waytator_window_capture_overlay_done(GdkTexture         *texture,
 
 static void waytator_window_capture_retake(gboolean            hide_waytator,
                                            WaytatorCaptureMode mode,
+                                           guint               delay_seconds,
                                            gpointer            user_data);
 
 static void
@@ -3930,8 +3929,9 @@ waytator_window_capture_ready(GObject      *source_object,
 
   if (waytator_capture_overlay_show(g_steal_pointer(&outputs),
                                     self->capture_mode,
+                                    self->capture_from_ui,
                                     self->capture_hide,
-                                    self->capture_from_ui ? waytator_window_capture_retake : NULL,
+                                    waytator_window_capture_retake,
                                     waytator_window_capture_overlay_done,
                                     self)) {
     g_object_ref(self);
@@ -3946,7 +3946,7 @@ waytator_window_capture_ready(GObject      *source_object,
 }
 
 static gboolean
-waytator_window_capture_after_hide(gpointer user_data)
+waytator_window_capture_after_wait(gpointer user_data)
 {
   WaytatorWindow *self = WAYTATOR_WINDOW(user_data);
 
@@ -3955,29 +3955,35 @@ waytator_window_capture_after_hide(gpointer user_data)
   return G_SOURCE_REMOVE;
 }
 
-//wait is for whatever else has to leave the screen first, like the overlay of a retake
+//wait is for whatever else has to leave the screen first, like the overlay of a retake,
+//the delay is the one someone asked for and is long enough for that on its own
 static void
 waytator_window_take_capture(WaytatorWindow *self,
-                             gboolean        wait)
+                             gboolean        wait,
+                             guint           delay_seconds)
 {
+  guint delay_ms = delay_seconds * 1000;
+
   if (self->capture_hide)
     wait |= waytator_window_hide_for_capture(self);
   else
     wait |= waytator_window_restore_after_capture(self);
 
-  if (!wait) {
-    waytator_window_capture_after_hide(self);
+  if (wait)
+    delay_ms = MAX(delay_ms, WAYTATOR_CAPTURE_SETTLE_MS);
+
+  if (delay_ms == 0) {
+    waytator_window_capture_after_wait(self);
     return;
   }
 
-  self->capture_delay_id = g_timeout_add(WAYTATOR_CAPTURE_HIDE_DELAY_MS,
-                                         waytator_window_capture_after_hide,
-                                         self);
+  self->capture_delay_id = g_timeout_add(delay_ms, waytator_window_capture_after_wait, self);
 }
 
 static void
 waytator_window_capture_retake(gboolean            hide_waytator,
                                WaytatorCaptureMode mode,
+                               guint               delay_seconds,
                                gpointer            user_data)
 {
   g_autoptr(WaytatorWindow) self = WAYTATOR_WINDOW(user_data);
@@ -3989,13 +3995,14 @@ waytator_window_capture_retake(gboolean            hide_waytator,
   self->capture_hide = hide_waytator;
   self->capture_mode = mode;
   self->capture_retake = TRUE;
-  waytator_window_take_capture(self, TRUE);
+  waytator_window_take_capture(self, TRUE, delay_seconds);
 }
 
 static void
 waytator_window_begin_capture(WaytatorWindow     *self,
                               WaytatorCaptureMode mode,
                               const char         *output_name,
+                              guint               delay_seconds,
                               gboolean            from_ui)
 {
   if (self->capture_in_progress)
@@ -4009,18 +4016,19 @@ waytator_window_begin_capture(WaytatorWindow     *self,
   self->capture_retake = FALSE;
   self->capture_output_name = g_strdup(output_name);
   self->capture_mode = mode;
-  waytator_window_take_capture(self, FALSE);
+  waytator_window_take_capture(self, FALSE, delay_seconds);
 }
 
 //for the command line, which never hides waytator
 void
 waytator_window_start_capture(WaytatorWindow     *self,
                               WaytatorCaptureMode mode,
-                              const char         *output_name)
+                              const char         *output_name,
+                              guint               delay_seconds)
 {
   g_return_if_fail(WAYTATOR_IS_WINDOW(self));
 
-  waytator_window_begin_capture(self, mode, output_name, FALSE);
+  waytator_window_begin_capture(self, mode, output_name, delay_seconds, FALSE);
 }
 
 static void
@@ -4035,6 +4043,7 @@ waytator_window_capture_action(GtkWidget  *widget,
                                   ? WAYTATOR_CAPTURE_SCREEN
                                   : WAYTATOR_CAPTURE_AREA,
                                 NULL,
+                                0,
                                 TRUE);
 }
 

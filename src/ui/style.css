@@ -414,6 +414,22 @@
   background-image: none;
 }
 
+.capture-pill menubutton.capture-delay > button {
+  min-height: 32px;
+  padding: 0 10px 0 12px;
+  border-radius: 10px;
+  color: white;
+  background: transparent;
+  background-color: transparent;
+  border-color: transparent;
+  box-shadow: none;
+}
+
+.capture-pill menubutton.capture-delay > button:hover,
+.capture-pill menubutton.capture-delay > button:checked {
+  background: alpha(white, 0.08);
+}
+
 .capture-pill checkbutton {
   min-height: 32px;
   padding: 0 12px 0 8px;
