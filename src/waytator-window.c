@@ -1537,8 +1537,7 @@ waytator_window_new_screenshots_page(WaytatorWindow *self)
   adw_preferences_page_set_title(page, "Screenshots");
   adw_preferences_page_set_icon_name(page, "camera-photo-symbolic");
   adw_preferences_group_set_description(group,
-                                        "Every screenshot is saved as soon as it is taken, saving your edits updates that file. "
-                                        "Without a folder you choose where each one goes.");
+                                        "These settings apply on screenshots taken by waytator");
 
   adw_preferences_row_set_title(ADW_PREFERENCES_ROW(folder_row), "Save folder");
   gtk_widget_set_valign(choose_button, GTK_ALIGN_CENTER);
@@ -1555,13 +1554,10 @@ waytator_window_new_screenshots_page(WaytatorWindow *self)
   g_signal_connect(clear_button, "clicked", G_CALLBACK(waytator_window_screenshot_folder_clear_clicked), folder_row);
 
   adw_preferences_row_set_title(ADW_PREFERENCES_ROW(copy_row), "Copy to clipboard");
-  adw_action_row_set_subtitle(ADW_ACTION_ROW(copy_row), "As soon as a screenshot is taken");
   adw_switch_row_set_active(copy_row, self->settings.screenshot_copy);
   g_signal_connect(copy_row, "notify::active", G_CALLBACK(waytator_window_screenshot_copy_changed), self);
 
   adw_preferences_row_set_title(ADW_PREFERENCES_ROW(hide_row), "Hide waytator");
-  adw_action_row_set_subtitle(ADW_ACTION_ROW(hide_row),
-                              "Keep its windows out of captures started in waytator, also switchable while capturing");
   adw_switch_row_set_active(hide_row, self->capture_hide_waytator);
   g_signal_connect(hide_row, "notify::active", G_CALLBACK(waytator_window_capture_hide_changed), self);
 
