@@ -9,6 +9,8 @@ typedef struct {
   //empty when saving is switched off
   char *screenshot_save_dir;
   gboolean screenshot_copy;
+  //every visible waytator window leaves the screen while a capture is taken
+  gboolean capture_hide_waytator;
   gboolean floating_controls_blur;
   double floating_controls_opacity;
 } WaytatorSettings;

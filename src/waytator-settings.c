@@ -24,6 +24,7 @@ waytator_settings_init(WaytatorSettings *settings)
 {
   settings->screenshot_save_dir = waytator_settings_default_save_dir();
   settings->screenshot_copy = TRUE;
+  settings->capture_hide_waytator = TRUE;
   settings->floating_controls_blur = TRUE;
   settings->floating_controls_opacity = 0.7;
 }
@@ -55,6 +56,12 @@ waytator_settings_read(WaytatorSettings *settings,
                                                        "screenshot_copy",
                                                        NULL);
 
+  if (g_key_file_has_key(key_file, WAYTATOR_SETTINGS_GROUP, "capture_hide_waytator", NULL))
+    settings->capture_hide_waytator = g_key_file_get_boolean(key_file,
+                                                             WAYTATOR_SETTINGS_GROUP,
+                                                             "capture_hide_waytator",
+                                                             NULL);
+
   if (g_key_file_has_key(key_file, WAYTATOR_SETTINGS_GROUP, "floating_controls_blur", NULL))
     settings->floating_controls_blur = g_key_file_get_boolean(key_file,
                                                               WAYTATOR_SETTINGS_GROUP,
@@ -84,6 +91,10 @@ waytator_settings_write(const WaytatorSettings *settings,
                          WAYTATOR_SETTINGS_GROUP,
                          "screenshot_copy",
                          settings->screenshot_copy);
+  g_key_file_set_boolean(key_file,
+                         WAYTATOR_SETTINGS_GROUP,
+                         "capture_hide_waytator",
+                         settings->capture_hide_waytator);
   g_key_file_set_boolean(key_file,
                          WAYTATOR_SETTINGS_GROUP,
                          "floating_controls_blur",

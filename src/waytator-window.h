@@ -27,6 +27,10 @@ void waytator_window_start_capture(WaytatorWindow     *self,
                                    WaytatorCaptureMode mode,
                                    const char         *output_name,
                                    guint               delay_seconds);
+gboolean waytator_window_hide_all(GtkApplication *app,
+                                  GPtrArray      *hidden);
+gboolean waytator_window_restore_all(GPtrArray *hidden);
+gboolean waytator_window_any_visible(GtkApplication *app);
 gboolean waytator_window_shortcut_is_valid(const char *shortcut);
 void waytator_window_ensure_css_loaded(void);
 void waytator_window_clear_overrides(WaytatorWindow *self);

@@ -3,6 +3,7 @@
 #include "waytator-capture-overlay.h"
 #include "waytator-export.h"
 #include "waytator-settings.h"
+#include "waytator-window.h"
 
 #include <string.h>
 
@@ -19,6 +20,9 @@ typedef struct {
   //set when the overlay asked for a new frame, which brings the overlay back rather than finish the capture
   gboolean retake;
   guint delay_id;
+  //whether waytator's windows leave the screen for this capture, and the ones that did
+  gboolean hide;
+  GPtrArray *hidden;
   WaytatorScreenshotEditFunc edit;
   gpointer user_data;
   GdkTexture *texture;
@@ -66,6 +70,9 @@ waytator_screenshot_free(WaytatorScreenshot *shot)
   if (shot->delay_id != 0)
     g_source_remove(shot->delay_id);
 
+  //a capture that was cancelled or failed brings the windows back here
+  waytator_window_restore_all(shot->hidden);
+  g_ptr_array_unref(shot->hidden);
   g_clear_object(&shot->connection);
   g_clear_object(&shot->texture);
   g_clear_object(&shot->file);
@@ -640,9 +647,9 @@ static void
 waytator_screenshot_captured(WaytatorScreenshot *shot,
                              GdkTexture         *texture)
 {
+  waytator_window_restore_all(shot->hidden);
   shot->texture = g_object_ref(texture);
   shot->name = waytator_screenshot_make_name();
-  waytator_settings_load(&shot->settings);
 
   if (*shot->settings.screenshot_save_dir == '\0' && !shot->settings.screenshot_copy) {
     waytator_screenshot_notify(shot);
@@ -736,10 +743,11 @@ waytator_screenshot_outputs_ready(GObject      *source_object,
     return;
   }
 
+  //the box only means something when there is a waytator window that would be in the picture
   if (waytator_capture_overlay_show(g_steal_pointer(&outputs),
                                     shot->mode,
-                                    FALSE,
-                                    FALSE,
+                                    shot->hidden->len > 0 || waytator_window_any_visible(GTK_APPLICATION(shot->app)),
+                                    shot->hide,
                                     waytator_screenshot_overlay_retake,
                                     waytator_screenshot_overlay_done,
                                     shot))
@@ -762,11 +770,23 @@ waytator_screenshot_take(gpointer user_data)
   return G_SOURCE_REMOVE;
 }
 
-//waits for the delay, or for the overlay of a retake to leave the screen
+//wait is for whatever else has to leave the screen first, like the overlay of a retake,
+//the delay is the one someone asked for and is long enough for that on its own
 static void
 waytator_screenshot_take_after(WaytatorScreenshot *shot,
-                               guint               delay_ms)
+                               gboolean            wait,
+                               guint               delay_seconds)
 {
+  guint delay_ms = delay_seconds * 1000;
+
+  if (shot->hide)
+    wait |= waytator_window_hide_all(GTK_APPLICATION(shot->app), shot->hidden);
+  else
+    wait |= waytator_window_restore_all(shot->hidden);
+
+  if (wait)
+    delay_ms = MAX(delay_ms, WAYTATOR_CAPTURE_SETTLE_MS);
+
   if (delay_ms == 0) {
     waytator_screenshot_take(shot);
     return;
@@ -775,7 +795,6 @@ waytator_screenshot_take_after(WaytatorScreenshot *shot,
   shot->delay_id = g_timeout_add(delay_ms, waytator_screenshot_take, shot);
 }
 
-//only a delay brings this here, there is no hide box without a window to hide
 static void
 waytator_screenshot_overlay_retake(gboolean            hide_waytator,
                                    WaytatorCaptureMode mode,
@@ -784,11 +803,11 @@ waytator_screenshot_overlay_retake(gboolean            hide_waytator,
 {
   WaytatorScreenshot *shot = user_data;
 
-  (void) hide_waytator;
-
+  //the box is for this capture only, the preference stays as it was
+  shot->hide = hide_waytator;
   shot->mode = mode;
   shot->retake = TRUE;
-  waytator_screenshot_take_after(shot, MAX(delay_seconds * 1000, WAYTATOR_CAPTURE_SETTLE_MS));
+  waytator_screenshot_take_after(shot, TRUE, delay_seconds);
 }
 
 //captures without showing a window: the result is saved, copied and announced, edit is how it reaches the editor
@@ -807,9 +826,12 @@ waytator_screenshot_capture_background(GApplication              *app,
   shot->output_name = g_strdup(output_name);
   shot->edit = edit;
   shot->user_data = user_data;
+  waytator_settings_load(&shot->settings);
+  shot->hide = shot->settings.capture_hide_waytator;
+  shot->hidden = g_ptr_array_new_with_free_func(g_object_unref);
   if (g_application_get_dbus_connection(app) != NULL)
     shot->connection = g_object_ref(g_application_get_dbus_connection(app));
   g_application_hold(app);
 
-  waytator_screenshot_take_after(shot, delay_seconds * 1000);
+  waytator_screenshot_take_after(shot, FALSE, delay_seconds);
 }
