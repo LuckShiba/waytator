@@ -37,6 +37,9 @@ struct _WaytatorCaptureOverlay {
   GPtrArray *views;
   WaytatorCaptureMode mode;
   gboolean updating;
+  gboolean closed;
+  gboolean hide_waytator;
+  WaytatorCaptureOverlayRetakeCallback retake;
   WaytatorCaptureOverlayCallback callback;
   gpointer user_data;
 };
@@ -120,23 +123,39 @@ waytator_capture_overlay_free(gpointer user_data)
   return G_SOURCE_REMOVE;
 }
 
+//FALSE when it already closed, events can still arrive while the windows go away
+static gboolean
+waytator_capture_overlay_close(WaytatorCaptureOverlay *overlay)
+{
+  if (overlay->closed)
+    return FALSE;
+
+  overlay->closed = TRUE;
+  for (guint i = 0; i < overlay->windows->len; i++)
+    gtk_window_destroy(g_ptr_array_index(overlay->windows, i));
+
+  //this usually runs inside a handler of one of the views, which still points at the overlay
+  g_idle_add(waytator_capture_overlay_free, overlay);
+  return TRUE;
+}
+
 static void
 waytator_capture_overlay_finish(WaytatorCaptureOverlay *overlay,
                                 GdkTexture             *texture)
 {
-  WaytatorCaptureOverlayCallback callback = overlay->callback;
+  //a screen pick hands over the view's own texture, which goes with the windows
+  g_autoptr(GdkTexture) kept = texture != NULL ? g_object_ref(texture) : NULL;
 
-  if (callback == NULL)
-    return;
+  if (waytator_capture_overlay_close(overlay))
+    overlay->callback(kept, overlay->mode, overlay->user_data);
+}
 
-  overlay->callback = NULL;
-  for (guint i = 0; i < overlay->windows->len; i++)
-    gtk_window_destroy(g_ptr_array_index(overlay->windows, i));
-
-  callback(texture, overlay->mode, overlay->user_data);
-
-  //this usually runs inside a handler of one of the views, which still points at the overlay
-  g_idle_add(waytator_capture_overlay_free, overlay);
+static void
+waytator_capture_overlay_hide_toggled(GtkCheckButton         *button,
+                                      WaytatorCaptureOverlay *overlay)
+{
+  if (waytator_capture_overlay_close(overlay))
+    overlay->retake(gtk_check_button_get_active(button), overlay->mode, overlay->user_data);
 }
 
 static void
@@ -537,10 +556,18 @@ waytator_capture_overlay_new_mode_button(WaytatorCaptureView *view,
 }
 
 static void
-waytator_capture_overlay_build_pill(WaytatorCaptureView *view)
+waytator_capture_overlay_append_separator(WaytatorCaptureView *view)
 {
   GtkWidget *separator = gtk_separator_new(GTK_ORIENTATION_VERTICAL);
 
+  gtk_widget_set_margin_start(separator, 4);
+  gtk_widget_set_margin_end(separator, 4);
+  gtk_box_append(GTK_BOX(view->pill), separator);
+}
+
+static void
+waytator_capture_overlay_build_pill(WaytatorCaptureView *view)
+{
   view->pill = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 4);
   gtk_widget_add_css_class(view->pill, "overlay-pill");
   gtk_widget_add_css_class(view->pill, "capture-pill");
@@ -551,10 +578,17 @@ waytator_capture_overlay_build_pill(WaytatorCaptureView *view)
   view->area_button = waytator_capture_overlay_new_mode_button(view, "Area");
   view->screen_button = waytator_capture_overlay_new_mode_button(view, "Screen");
   gtk_toggle_button_set_group(view->screen_button, view->area_button);
+  waytator_capture_overlay_append_separator(view);
 
-  gtk_widget_set_margin_start(separator, 4);
-  gtk_widget_set_margin_end(separator, 4);
-  gtk_box_append(GTK_BOX(view->pill), separator);
+  if (view->overlay->retake != NULL) {
+    GtkWidget *hide_button = gtk_check_button_new_with_label("Hide waytator");
+
+    gtk_check_button_set_active(GTK_CHECK_BUTTON(hide_button), view->overlay->hide_waytator);
+    gtk_widget_set_focusable(hide_button, FALSE);
+    g_signal_connect(hide_button, "toggled", G_CALLBACK(waytator_capture_overlay_hide_toggled), view->overlay);
+    gtk_box_append(GTK_BOX(view->pill), hide_button);
+    waytator_capture_overlay_append_separator(view);
+  }
 
   view->hint_label = GTK_LABEL(gtk_label_new(NULL));
   gtk_widget_add_css_class(GTK_WIDGET(view->hint_label), "capture-hint");
@@ -665,16 +699,20 @@ waytator_capture_overlay_add_window(WaytatorCaptureOverlay *overlay,
 
 //takes the outputs, and returns FALSE without calling back when none of them is on a known monitor
 gboolean
-waytator_capture_overlay_show(GPtrArray                     *outputs,
-                              WaytatorCaptureMode            mode,
-                              WaytatorCaptureOverlayCallback callback,
-                              gpointer                       user_data)
+waytator_capture_overlay_show(GPtrArray                           *outputs,
+                              WaytatorCaptureMode                  mode,
+                              gboolean                             hide_waytator,
+                              WaytatorCaptureOverlayRetakeCallback retake,
+                              WaytatorCaptureOverlayCallback       callback,
+                              gpointer                             user_data)
 {
   WaytatorCaptureOverlay *overlay = g_new0(WaytatorCaptureOverlay, 1);
 
   overlay->outputs = outputs;
   overlay->windows = g_ptr_array_new();
   overlay->views = g_ptr_array_new();
+  overlay->hide_waytator = hide_waytator;
+  overlay->retake = retake;
   overlay->callback = callback;
   overlay->user_data = user_data;
 

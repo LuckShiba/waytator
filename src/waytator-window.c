@@ -578,6 +578,12 @@ waytator_window_load_preferences(WaytatorWindow *self)
                                                    "screenshot_copy",
                                                    NULL);
 
+  if (g_key_file_has_key(key_file, WAYTATOR_SETTINGS_GROUP, "capture_hide_waytator", NULL))
+    self->capture_hide_waytator = g_key_file_get_boolean(key_file,
+                                                         WAYTATOR_SETTINGS_GROUP,
+                                                         "capture_hide_waytator",
+                                                         NULL);
+
   if (g_key_file_has_key(key_file, WAYTATOR_SETTINGS_GROUP, "window_background_mode", NULL)) {
     const int mode = g_key_file_get_integer(key_file,
                                             WAYTATOR_SETTINGS_GROUP,
@@ -775,6 +781,10 @@ waytator_window_save_preferences(WaytatorWindow *self)
                          WAYTATOR_SETTINGS_GROUP,
                          "screenshot_copy",
                          self->screenshot_copy);
+  g_key_file_set_boolean(key_file,
+                         WAYTATOR_SETTINGS_GROUP,
+                         "capture_hide_waytator",
+                         self->capture_hide_waytator);
   g_key_file_set_integer(key_file,
                          WAYTATOR_SETTINGS_GROUP,
                          "window_background_mode",
@@ -3748,6 +3758,60 @@ waytator_window_update_capture_controls(WaytatorWindow *self)
   }
 }
 
+//every waytator window, so none of them ends up in the picture
+static gboolean
+waytator_window_hide_for_capture(WaytatorWindow *self)
+{
+  GtkApplication *app = gtk_window_get_application(GTK_WINDOW(self));
+  g_autoptr(GList) windows = app != NULL ? g_list_copy(gtk_application_get_windows(app)) : NULL;
+  gboolean hid = FALSE;
+
+  if (self->capture_hidden_windows == NULL)
+    return FALSE;
+
+  for (GList *link = windows; link != NULL; link = link->next) {
+    if (!WAYTATOR_IS_WINDOW(link->data) || !gtk_widget_get_visible(GTK_WIDGET(link->data)))
+      continue;
+
+    g_ptr_array_add(self->capture_hidden_windows, g_object_ref(link->data));
+    gtk_widget_set_visible(GTK_WIDGET(link->data), FALSE);
+    hid = TRUE;
+  }
+
+  return hid;
+}
+
+static gboolean
+waytator_window_restore_after_capture(WaytatorWindow *self)
+{
+  gboolean restored;
+
+  //a capture can still finish after its window was closed
+  if (self->capture_hidden_windows == NULL)
+    return FALSE;
+
+  restored = self->capture_hidden_windows->len > 0;
+  //they were hidden most recently used first, so that one comes back last and ends up on top
+  for (guint i = self->capture_hidden_windows->len; i > 0; i--)
+    gtk_window_present(g_ptr_array_index(self->capture_hidden_windows, i - 1));
+
+  g_ptr_array_set_size(self->capture_hidden_windows, 0);
+  return restored;
+}
+
+static gboolean
+waytator_window_any_visible(WaytatorWindow *self)
+{
+  GtkApplication *app = gtk_window_get_application(GTK_WINDOW(self));
+
+  for (GList *link = app != NULL ? gtk_application_get_windows(app) : NULL; link != NULL; link = link->next) {
+    if (WAYTATOR_IS_WINDOW(link->data) && gtk_widget_get_visible(GTK_WIDGET(link->data)))
+      return TRUE;
+  }
+
+  return FALSE;
+}
+
 static void
 waytator_window_finish_capture(WaytatorWindow *self,
                                GdkTexture     *texture,
@@ -3757,16 +3821,13 @@ waytator_window_finish_capture(WaytatorWindow *self,
 
   self->capture_in_progress = FALSE;
   g_clear_pointer(&self->capture_output_name, g_free);
+  waytator_window_restore_after_capture(self);
 
-  if (texture == NULL && error == NULL && !self->capture_restore_window && self->texture == NULL) {
+  if (texture == NULL && error == NULL && !self->capture_window_was_visible && self->texture == NULL) {
     //cancelled, and the window only exists because the command line asked for a capture
     gtk_window_destroy(GTK_WINDOW(self));
     return;
   }
-
-  //this window was only hidden to stay out of the picture
-  if (self->capture_restore_window || self->texture == NULL)
-    gtk_window_present(GTK_WINDOW(self));
 
   if (texture != NULL) {
     g_autofree char *name = waytator_screenshot_make_name();
@@ -3778,8 +3839,10 @@ waytator_window_finish_capture(WaytatorWindow *self,
     gtk_window_present(GTK_WINDOW(target));
   }
 
-  if (error != NULL)
+  if (error != NULL) {
+    gtk_window_present(GTK_WINDOW(self));
     waytator_window_show_error(self, error->message);
+  }
 }
 
 static void
@@ -3794,6 +3857,10 @@ waytator_window_capture_overlay_done(GdkTexture         *texture,
   waytator_window_finish_capture(self, texture, NULL);
 }
 
+static void waytator_window_capture_retake(gboolean            hide_waytator,
+                                           WaytatorCaptureMode mode,
+                                           gpointer            user_data);
+
 static void
 waytator_window_capture_ready(GObject      *source_object,
                               GAsyncResult *result,
@@ -3802,7 +3869,7 @@ waytator_window_capture_ready(GObject      *source_object,
   g_autoptr(WaytatorWindow) self = WAYTATOR_WINDOW(user_data);
   g_autoptr(GError) error = NULL;
   g_autoptr(GPtrArray) outputs = waytator_capture_outputs_finish(result, &error);
-  WaytatorCaptureOutput *output;
+  WaytatorCaptureOutput *output = NULL;
 
   (void) source_object;
 
@@ -3814,7 +3881,9 @@ waytator_window_capture_ready(GObject      *source_object,
     return;
   }
 
-  output = waytator_capture_pick_output(outputs, self->capture_mode, self->capture_output_name, &error);
+  //a retake comes from the overlay, which should come back rather than turn into a capture
+  if (!self->capture_retake)
+    output = waytator_capture_pick_output(outputs, self->capture_mode, self->capture_output_name, &error);
   if (error != NULL) {
     waytator_window_finish_capture(self, NULL, error);
     return;
@@ -3829,6 +3898,8 @@ waytator_window_capture_ready(GObject      *source_object,
 
   if (waytator_capture_overlay_show(g_steal_pointer(&outputs),
                                     self->capture_mode,
+                                    self->capture_hide_waytator,
+                                    self->capture_offer_hide ? waytator_window_capture_retake : NULL,
                                     waytator_window_capture_overlay_done,
                                     self)) {
     g_object_ref(self);
@@ -3852,6 +3923,42 @@ waytator_window_capture_after_hide(gpointer user_data)
   return G_SOURCE_REMOVE;
 }
 
+//wait is for whatever else has to leave the screen first, like the overlay of a retake
+static void
+waytator_window_take_capture(WaytatorWindow *self,
+                             gboolean        wait)
+{
+  if (self->capture_hide_waytator)
+    wait |= waytator_window_hide_for_capture(self);
+  else
+    wait |= waytator_window_restore_after_capture(self);
+
+  if (!wait) {
+    waytator_window_capture_after_hide(self);
+    return;
+  }
+
+  self->capture_delay_id = g_timeout_add(WAYTATOR_CAPTURE_HIDE_DELAY_MS,
+                                         waytator_window_capture_after_hide,
+                                         self);
+}
+
+static void
+waytator_window_capture_retake(gboolean            hide_waytator,
+                               WaytatorCaptureMode mode,
+                               gpointer            user_data)
+{
+  g_autoptr(WaytatorWindow) self = WAYTATOR_WINDOW(user_data);
+
+  //the box doubles as the preference
+  self->capture_hide_waytator = hide_waytator;
+  waytator_window_save_preferences(self);
+
+  self->capture_mode = mode;
+  self->capture_retake = TRUE;
+  waytator_window_take_capture(self, TRUE);
+}
+
 void
 waytator_window_start_capture(WaytatorWindow     *self,
                               WaytatorCaptureMode mode,
@@ -3863,20 +3970,13 @@ waytator_window_start_capture(WaytatorWindow     *self,
     return;
 
   self->capture_in_progress = TRUE;
-  self->capture_restore_window = gtk_widget_get_visible(GTK_WIDGET(self));
+  self->capture_window_was_visible = gtk_widget_get_visible(GTK_WIDGET(self));
+  //hiding waytator is only worth asking about when some of it is on screen
+  self->capture_offer_hide = waytator_window_any_visible(self);
+  self->capture_retake = FALSE;
   self->capture_output_name = g_strdup(output_name);
   self->capture_mode = mode;
-
-  if (!self->capture_restore_window) {
-    waytator_window_capture_after_hide(self);
-    return;
-  }
-
-  //waytator itself should not be in the picture
-  gtk_widget_set_visible(GTK_WIDGET(self), FALSE);
-  self->capture_delay_id = g_timeout_add(WAYTATOR_CAPTURE_HIDE_DELAY_MS,
-                                         waytator_window_capture_after_hide,
-                                         self);
+  waytator_window_take_capture(self, FALSE);
 }
 
 static void
@@ -4020,6 +4120,7 @@ waytator_window_dispose(GObject *object)
     g_source_remove(self->capture_delay_id);
   self->capture_delay_id = 0;
   g_clear_pointer(&self->capture_output_name, g_free);
+  g_clear_pointer(&self->capture_hidden_windows, g_ptr_array_unref);
   g_clear_object(&self->adopt_file);
   g_clear_object(&self->save_menu);
   g_clear_pointer(&self->save_menu_key, g_free);
@@ -4198,6 +4299,7 @@ waytator_window_init_state(WaytatorWindow *self)
     waytator_window_apply_shortcut(self, i, waytator_shortcuts[i].default_accel);
   self->screenshot_save_dir = waytator_screenshot_default_save_dir();
   self->screenshot_copy = TRUE;
+  self->capture_hidden_windows = g_ptr_array_new_with_free_func(g_object_unref);
   waytator_window_load_preferences(self);
 
   for (int i = 0; i <= WAYTATOR_TOOL_BLUR; i++)

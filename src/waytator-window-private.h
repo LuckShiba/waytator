@@ -133,8 +133,12 @@ struct _WaytatorWindow {
   char *screenshot_save_dir;
   gboolean screenshot_copy;
   WaytatorCaptureMode capture_mode;
+  gboolean capture_hide_waytator;
   gboolean capture_in_progress;
-  gboolean capture_restore_window;
+  gboolean capture_window_was_visible;
+  gboolean capture_offer_hide;
+  gboolean capture_retake;
+  GPtrArray *capture_hidden_windows;
   char *capture_output_name;
   guint capture_delay_id;
   WaytatorAfterSave after_save;

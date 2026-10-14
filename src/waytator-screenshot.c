@@ -596,6 +596,8 @@ waytator_screenshot_outputs_ready(GObject      *source_object,
 
   if (waytator_capture_overlay_show(g_steal_pointer(&outputs),
                                     shot->mode,
+                                    FALSE,
+                                    NULL,
                                     waytator_screenshot_overlay_done,
                                     shot))
     return;
