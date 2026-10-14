@@ -25,6 +25,7 @@ typedef struct {
   GPtrArray *hidden;
   WaytatorScreenshotEditFunc edit;
   gpointer user_data;
+  GDestroyNotify user_data_free;
   GdkTexture *texture;
   char *name;
   WaytatorSettings settings;
@@ -80,6 +81,8 @@ waytator_screenshot_free(WaytatorScreenshot *shot)
   g_free(shot->name);
   waytator_settings_clear(&shot->settings);
   g_free(shot->save_error);
+  if (shot->user_data_free != NULL)
+    shot->user_data_free(shot->user_data);
   //the application stayed alive for this, with no window of its own
   g_application_release(shot->app);
   g_object_unref(shot->app);
@@ -817,7 +820,8 @@ waytator_screenshot_capture_background(GApplication              *app,
                                        const char                *output_name,
                                        guint                      delay_seconds,
                                        WaytatorScreenshotEditFunc edit,
-                                       gpointer                   user_data)
+                                       gpointer                   user_data,
+                                       GDestroyNotify             user_data_free)
 {
   WaytatorScreenshot *shot = g_new0(WaytatorScreenshot, 1);
 
@@ -826,6 +830,7 @@ waytator_screenshot_capture_background(GApplication              *app,
   shot->output_name = g_strdup(output_name);
   shot->edit = edit;
   shot->user_data = user_data;
+  shot->user_data_free = user_data_free;
   waytator_settings_load(&shot->settings);
   shot->hide = shot->settings.capture_hide_waytator;
   shot->hidden = g_ptr_array_new_with_free_func(g_object_unref);

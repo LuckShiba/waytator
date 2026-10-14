@@ -68,23 +68,6 @@ app_get_or_create_window(AdwApplication *app)
   return WAYTATOR_WINDOW(window);
 }
 
-//what Edit on the notification of a background capture leads to
-static void
-app_edit_screenshot(GdkTexture *texture,
-                    GFile      *file,
-                    const char *name,
-                    gpointer    user_data)
-{
-  WaytatorWindow *window = waytator_window_for_new_image(GTK_APPLICATION(user_data));
-  g_autoptr(GError) error = NULL;
-
-  //the saved file may be gone by the time someone clicks, the capture itself is still around
-  if (file == NULL || !waytator_window_open_file(window, file, &error))
-    waytator_window_open_capture(window, texture, name);
-
-  gtk_window_present(GTK_WINDOW(window));
-}
-
 static void
 quit_action(GSimpleAction *action,
             GVariant      *parameter,
@@ -174,6 +157,59 @@ static const struct {
   { "--capture-area-shortcut", "capture-area" },
   { "--capture-screen-shortcut", "capture-screen" },
 };
+
+//what a command line asks of the editor, kept for a --notify capture whose window only opens if Edit is clicked
+typedef struct {
+  GApplication *app;
+  int close_on_copy;
+  char *shortcuts[G_N_ELEMENTS(app_shortcut_options)];
+} AppOverrides;
+
+static void
+app_overrides_free(gpointer user_data)
+{
+  AppOverrides *overrides = user_data;
+
+  for (guint i = 0; i < G_N_ELEMENTS(app_shortcut_options); i++)
+    g_free(overrides->shortcuts[i]);
+  g_object_unref(overrides->app);
+  g_free(overrides);
+}
+
+//close_on_copy is -1 when the command line did not say, a shortcut is NULL when it was not given
+static void
+app_apply_overrides(WaytatorWindow    *window,
+                    int                close_on_copy,
+                    const char *const *shortcuts)
+{
+  waytator_window_clear_overrides(window);
+  if (close_on_copy >= 0)
+    waytator_window_set_close_on_copy_override(window, close_on_copy);
+  for (guint i = 0; i < G_N_ELEMENTS(app_shortcut_options); i++) {
+    if (shortcuts[i] != NULL)
+      waytator_window_set_shortcut_override(window, app_shortcut_options[i].name, shortcuts[i]);
+  }
+}
+
+//what Edit on the notification of a background capture leads to
+static void
+app_edit_screenshot(GdkTexture *texture,
+                    GFile      *file,
+                    const char *name,
+                    gpointer    user_data)
+{
+  AppOverrides *overrides = user_data;
+  WaytatorWindow *window = waytator_window_for_new_image(GTK_APPLICATION(overrides->app));
+  g_autoptr(GError) error = NULL;
+
+  app_apply_overrides(window, overrides->close_on_copy, (const char *const *) overrides->shortcuts);
+
+  //the saved file may be gone by the time someone clicks, the capture itself is still around
+  if (file == NULL || !waytator_window_open_file(window, file, &error))
+    waytator_window_open_capture(window, texture, name);
+
+  gtk_window_present(GTK_WINDOW(window));
+}
 
 static int
 app_find_shortcut_option(const char *argument)
@@ -405,7 +441,20 @@ app_command_line(GApplication            *app,
 
   //no window at all here, one only appears if the notification is used to ask for it
   if (notify) {
-    waytator_screenshot_capture_background(app, capture_mode, capture_screen, delay_seconds, app_edit_screenshot, app);
+    AppOverrides *overrides = g_new0(AppOverrides, 1);
+
+    overrides->app = g_object_ref(app);
+    overrides->close_on_copy = close_on_copy;
+    for (guint i = 0; i < G_N_ELEMENTS(app_shortcut_options); i++)
+      overrides->shortcuts[i] = g_strdup(shortcuts[i]);
+
+    waytator_screenshot_capture_background(app,
+                                           capture_mode,
+                                           capture_screen,
+                                           delay_seconds,
+                                           app_edit_screenshot,
+                                           overrides,
+                                           app_overrides_free);
     goto done;
   }
 
@@ -413,13 +462,7 @@ app_command_line(GApplication            *app,
   window = screenshot || use_stdin || file != NULL
          ? waytator_window_for_new_image(GTK_APPLICATION(app))
          : app_get_or_create_window(ADW_APPLICATION(app));
-  waytator_window_clear_overrides(window);
-  if (close_on_copy >= 0)
-    waytator_window_set_close_on_copy_override(window, close_on_copy);
-  for (guint i = 0; i < G_N_ELEMENTS(app_shortcut_options); i++) {
-    if (shortcuts[i] != NULL)
-      waytator_window_set_shortcut_override(window, app_shortcut_options[i].name, shortcuts[i]);
-  }
+  app_apply_overrides(window, close_on_copy, shortcuts);
 
   //the window shows itself once the capture is over
   if (screenshot) {
