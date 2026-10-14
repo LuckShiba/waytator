@@ -2912,6 +2912,7 @@ waytator_window_adopt_saved_file(WaytatorWindow *self)
 
   g_clear_object(&self->current_file);
   self->current_file = g_steal_pointer(&self->adopt_file);
+  self->adopt_file_reserved = FALSE;
   g_free(self->source_name);
   self->source_name = g_file_get_basename(self->current_file);
   gtk_label_set_text(self->file_label, self->source_name);
@@ -2940,6 +2941,10 @@ waytator_window_save_export_ready(GObject      *source_object,
     self->save_feedback_timeout_id = 0;
     self->after_save = WAYTATOR_AFTER_SAVE_NONE;
     g_clear_pointer(&self->saved_path, g_free);
+    //an empty file waytator made to hold the name, not one that was there before
+    if (self->adopt_file_reserved)
+      g_file_delete(self->adopt_file, NULL, NULL);
+    self->adopt_file_reserved = FALSE;
     g_clear_object(&self->adopt_file);
     self->from_capture = FALSE;
     waytator_window_reset_save_button(self);
@@ -2983,6 +2988,7 @@ waytator_window_save_to_file(WaytatorWindow *self,
   }
 
   g_clear_object(&self->adopt_file);
+  self->adopt_file_reserved = FALSE;
   if (self->current_file == NULL)
     self->adopt_file = g_object_ref(file);
 
@@ -3087,9 +3093,11 @@ waytator_window_save_capture_to_folder(WaytatorWindow *self)
     return TRUE;
   }
 
-  //the reserved file is empty, and a save that never started would leave it behind
+  //the reserved file is empty, and a save that never started or failed would leave it behind
   if (!waytator_window_save_to_file(self, file))
     g_file_delete(file, NULL, NULL);
+  else
+    self->adopt_file_reserved = self->adopt_file != NULL;
   return TRUE;
 }
 
@@ -3486,6 +3494,7 @@ waytator_window_clear_image(WaytatorWindow *self)
   }
   g_clear_pointer(&self->source_name, g_free);
   g_clear_object(&self->adopt_file);
+  self->adopt_file_reserved = FALSE;
   self->never_saved = FALSE;
   self->from_capture = FALSE;
   self->capture_storing = FALSE;

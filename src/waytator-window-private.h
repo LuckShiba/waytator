@@ -134,6 +134,8 @@ struct _WaytatorWindow {
   //counts the images this window has shown, so late news about an old one can be told apart
   guint image_serial;
   GFile *adopt_file;
+  //adopt_file is an empty one made to claim a name in the screenshot folder
+  gboolean adopt_file_reserved;
   WaytatorSettings settings;
   WaytatorCaptureMode capture_mode;
   gboolean capture_hide_waytator;
