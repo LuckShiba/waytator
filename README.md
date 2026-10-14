@@ -85,6 +85,8 @@ waytator --screenshot --notify
 
 The screenshot is saved to `~/Pictures/Screenshots`, copied to the clipboard, and a notification offers to open or edit it. A screenshot that opens in the editor is saved and copied the same way as soon as it is taken, and saving your edits updates that file. The folder and the clipboard copy can be changed or turned off in Preferences → Screenshots.
 
+Screenshots are tested on niri and GNOME. Compositors that support `wlr-screencopy` (niri, sway and other wlroots-based ones) are captured directly, and the others go through the desktop's screenshot portal, which may ask for permission the first time. Set `WAYTATOR_CAPTURE_BACKEND` to `screencopy` or `portal` to choose one.
+
 Read from stdin automatically when image data is piped in:
 
 ```bash
