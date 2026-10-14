@@ -414,6 +414,10 @@ waytator_screenshot_action_invoked(GDBusConnection *connection,
   (void) interface_name;
   (void) signal_name;
 
+  //anyone on the bus can send this signal, with any body
+  if (!g_variant_is_of_type(parameters, G_VARIANT_TYPE("(us)")))
+    return;
+
   g_variant_get(parameters, "(u&s)", &id, &action);
   if (id != shot->notification_id)
     return;
@@ -455,6 +459,9 @@ waytator_screenshot_notification_closed(GDBusConnection *connection,
   (void) object_path;
   (void) interface_name;
   (void) signal_name;
+
+  if (!g_variant_is_of_type(parameters, G_VARIANT_TYPE("(uu)")))
+    return;
 
   g_variant_get(parameters, "(uu)", &id, &reason);
   if (id == shot->notification_id)
