@@ -1,4 +1,5 @@
 #include "waytator-capture-overlay.h"
+#include "waytator-settings.h"
 #include "waytator-window.h"
 
 #include <gtk4-layer-shell.h>
@@ -117,35 +118,20 @@ waytator_capture_pick_output(GPtrArray          *outputs,
 static GtkCssProvider *
 waytator_capture_overlay_new_pill_style(void)
 {
-  g_autofree char *path = g_build_filename(g_get_user_config_dir(), WAYTATOR_SETTINGS_FILE, NULL);
-  g_autoptr(GKeyFile) key_file = g_key_file_new();
   g_autofree char *css = NULL;
   GtkCssProvider *provider = gtk_css_provider_new();
-  gboolean blur = TRUE;
-  double opacity = 0.7;
+  WaytatorSettings settings;
   char opacity_text[G_ASCII_DTOSTR_BUF_SIZE];
 
-  if (g_key_file_load_from_file(key_file, path, G_KEY_FILE_NONE, NULL)) {
-    if (g_key_file_has_key(key_file, WAYTATOR_SETTINGS_GROUP, "floating_controls_blur", NULL))
-      blur = g_key_file_get_boolean(key_file, WAYTATOR_SETTINGS_GROUP, "floating_controls_blur", NULL);
-    if (g_key_file_has_key(key_file, WAYTATOR_SETTINGS_GROUP, "floating_controls_opacity", NULL)) {
-      const double value = g_key_file_get_double(key_file,
-                                                 WAYTATOR_SETTINGS_GROUP,
-                                                 "floating_controls_opacity",
-                                                 NULL);
-
-      if (value >= 0.0 && value <= 1.0)
-        opacity = value;
-    }
-  }
-
+  waytator_settings_load(&settings);
   //printf would use the locale's decimal separator, which is not valid css
-  g_ascii_formatd(opacity_text, sizeof opacity_text, "%.2f", opacity);
+  g_ascii_formatd(opacity_text, sizeof opacity_text, "%.2f", settings.floating_controls_opacity);
   css = g_strdup_printf(".capture-pill { background: alpha(black, %s); background-color: alpha(black, %s);"
                         " backdrop-filter: %s; }",
                         opacity_text,
                         opacity_text,
-                        blur ? "blur(18px)" : "none");
+                        settings.floating_controls_blur ? "blur(18px)" : "none");
+  waytator_settings_clear(&settings);
   gtk_css_provider_load_from_string(provider, css);
   gtk_style_context_add_provider_for_display(gdk_display_get_default(),
                                              GTK_STYLE_PROVIDER(provider),

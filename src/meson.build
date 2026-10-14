@@ -21,6 +21,8 @@ waytator_sources = files(
   'waytator-render.h',
   'waytator-screenshot.c',
   'waytator-screenshot.h',
+  'waytator-settings.c',
+  'waytator-settings.h',
   'waytator-stroke.c',
   'waytator-stroke.h',
   'waytator-types.h',

@@ -172,12 +172,6 @@ static const GdkRGBA waytator_default_palette[WAYTATOR_MAX_PALETTE_COLORS] = {
   { 1.0, 0.45, 0.7, 1.0 },
 };
 
-static char *
-waytator_window_preferences_path(void)
-{
-  return g_build_filename(g_get_user_config_dir(), WAYTATOR_SETTINGS_FILE, NULL);
-}
-
 static gboolean
 waytator_window_parse_accelerator(const char      *accelerator,
                                   guint           *keyval,
@@ -543,7 +537,7 @@ waytator_window_angle_snap_modifier_label(GdkModifierType modifiers)
 static void
 waytator_window_load_preferences(WaytatorWindow *self)
 {
-  g_autofree char *path = waytator_window_preferences_path();
+  g_autofree char *path = waytator_settings_path();
   g_autoptr(GKeyFile) key_file = g_key_file_new();
   g_autoptr(GError) error = NULL;
 
@@ -564,19 +558,7 @@ waytator_window_load_preferences(WaytatorWindow *self)
       self->eraser_style = eraser_style;
   }
 
-  if (g_key_file_has_key(key_file, WAYTATOR_SETTINGS_GROUP, "screenshot_save_dir", NULL)) {
-    g_free(self->screenshot_save_dir);
-    self->screenshot_save_dir = g_key_file_get_string(key_file,
-                                                      WAYTATOR_SETTINGS_GROUP,
-                                                      "screenshot_save_dir",
-                                                      NULL);
-  }
-
-  if (g_key_file_has_key(key_file, WAYTATOR_SETTINGS_GROUP, "screenshot_copy", NULL))
-    self->screenshot_copy = g_key_file_get_boolean(key_file,
-                                                   WAYTATOR_SETTINGS_GROUP,
-                                                   "screenshot_copy",
-                                                   NULL);
+  waytator_settings_read(&self->settings, key_file);
 
   if (g_key_file_has_key(key_file, WAYTATOR_SETTINGS_GROUP, "capture_hide_waytator", NULL))
     self->capture_hide_waytator = g_key_file_get_boolean(key_file,
@@ -613,22 +595,6 @@ waytator_window_load_preferences(WaytatorWindow *self)
 
     if (opacity >= 0.1 && opacity <= 1.0)
       self->window_background_opacity = opacity;
-  }
-
-  if (g_key_file_has_key(key_file, WAYTATOR_SETTINGS_GROUP, "floating_controls_blur", NULL))
-    self->floating_controls_blur = g_key_file_get_boolean(key_file,
-                                                          WAYTATOR_SETTINGS_GROUP,
-                                                          "floating_controls_blur",
-                                                          NULL);
-
-  if (g_key_file_has_key(key_file, WAYTATOR_SETTINGS_GROUP, "floating_controls_opacity", NULL)) {
-    const double opacity = g_key_file_get_double(key_file,
-                                                 WAYTATOR_SETTINGS_GROUP,
-                                                 "floating_controls_opacity",
-                                                 NULL);
-
-    if (opacity >= 0.0 && opacity <= 1.0)
-      self->floating_controls_opacity = opacity;
   }
 
   if (g_key_file_has_key(key_file, WAYTATOR_SETTINGS_GROUP, "auto_copy_latest_change", NULL))
@@ -759,7 +725,7 @@ waytator_window_share_preferences(WaytatorWindow *self)
 void
 waytator_window_save_preferences(WaytatorWindow *self)
 {
-  g_autofree char *path = waytator_window_preferences_path();
+  g_autofree char *path = waytator_settings_path();
   g_autofree char *directory = g_path_get_dirname(path);
   g_autoptr(GKeyFile) key_file = g_key_file_new();
   g_autofree char *data = NULL;
@@ -773,14 +739,7 @@ waytator_window_save_preferences(WaytatorWindow *self)
                          WAYTATOR_SETTINGS_GROUP,
                          "eraser_style",
                          self->eraser_style);
-  g_key_file_set_string(key_file,
-                        WAYTATOR_SETTINGS_GROUP,
-                        "screenshot_save_dir",
-                        self->screenshot_save_dir);
-  g_key_file_set_boolean(key_file,
-                         WAYTATOR_SETTINGS_GROUP,
-                         "screenshot_copy",
-                         self->screenshot_copy);
+  waytator_settings_write(&self->settings, key_file);
   g_key_file_set_boolean(key_file,
                          WAYTATOR_SETTINGS_GROUP,
                          "capture_hide_waytator",
@@ -793,14 +752,6 @@ waytator_window_save_preferences(WaytatorWindow *self)
                         WAYTATOR_SETTINGS_GROUP,
                         "window_background_opacity",
                         self->window_background_opacity);
-  g_key_file_set_boolean(key_file,
-                         WAYTATOR_SETTINGS_GROUP,
-                         "floating_controls_blur",
-                         self->floating_controls_blur);
-  g_key_file_set_double(key_file,
-                        WAYTATOR_SETTINGS_GROUP,
-                        "floating_controls_opacity",
-                        self->floating_controls_opacity);
   g_key_file_set_boolean(key_file,
                          WAYTATOR_SETTINGS_GROUP,
                          "auto_copy_latest_change",
@@ -957,7 +908,7 @@ waytator_window_floating_controls_blur_changed(AdwSwitchRow   *row,
 {
   (void) pspec;
 
-  self->floating_controls_blur = adw_switch_row_get_active(row);
+  self->settings.floating_controls_blur = adw_switch_row_get_active(row);
   waytator_window_save_preferences(self);
   waytator_window_update_widget_appearance(self);
 }
@@ -966,7 +917,7 @@ static void
 waytator_window_floating_controls_opacity_changed(GtkSpinButton  *spin_button,
                                                   WaytatorWindow *self)
 {
-  self->floating_controls_opacity = gtk_spin_button_get_value(spin_button);
+  self->settings.floating_controls_opacity = gtk_spin_button_get_value(spin_button);
   waytator_window_save_preferences(self);
   waytator_window_update_widget_appearance(self);
 }
@@ -1457,13 +1408,13 @@ static void
 waytator_window_update_widget_appearance(WaytatorWindow *self)
 {
   g_autofree char *css = NULL;
-  const char *blur = self->floating_controls_blur ? "blur(18px)" : "none";
+  const char *blur = self->settings.floating_controls_blur ? "blur(18px)" : "none";
   char opacity[G_ASCII_DTOSTR_BUF_SIZE];
 
   if (self->widget_css_provider == NULL)
     return;
 
-  g_ascii_formatd(opacity, sizeof opacity, "%.2f", self->floating_controls_opacity);
+  g_ascii_formatd(opacity, sizeof opacity, "%.2f", self->settings.floating_controls_opacity);
   css = g_strdup_printf(
     ".overlay-pill, bottom-sheet > sheet.background {"
     " color: white;"
@@ -1487,8 +1438,8 @@ waytator_window_update_screenshot_folder_row(WaytatorWindow *self,
                                              AdwActionRow   *row)
 {
   GtkWidget *clear_button = g_object_get_data(G_OBJECT(row), "clear-button");
-  const gboolean is_set = *self->screenshot_save_dir != '\0';
-  g_autofree char *folder = is_set ? waytator_screenshot_display_path(self->screenshot_save_dir) : NULL;
+  const gboolean is_set = *self->settings.screenshot_save_dir != '\0';
+  g_autofree char *folder = is_set ? waytator_screenshot_display_path(self->settings.screenshot_save_dir) : NULL;
 
   adw_action_row_set_subtitle(row, is_set ? folder : "Not set, saving asks where to put each screenshot");
   gtk_widget_set_visible(clear_button, is_set);
@@ -1507,8 +1458,8 @@ waytator_window_screenshot_folder_chosen(GObject      *source_object,
   if (path == NULL)
     return;
 
-  g_free(self->screenshot_save_dir);
-  self->screenshot_save_dir = g_steal_pointer(&path);
+  g_free(self->settings.screenshot_save_dir);
+  self->settings.screenshot_save_dir = g_steal_pointer(&path);
   waytator_window_save_preferences(self);
   waytator_window_update_screenshot_folder_row(self, row);
 }
@@ -1523,8 +1474,8 @@ waytator_window_screenshot_folder_choose_clicked(GtkButton    *button,
   (void) button;
 
   gtk_file_dialog_set_title(dialog, "Screenshot folder");
-  if (*self->screenshot_save_dir != '\0') {
-    g_autoptr(GFile) folder = g_file_new_for_path(self->screenshot_save_dir);
+  if (*self->settings.screenshot_save_dir != '\0') {
+    g_autoptr(GFile) folder = g_file_new_for_path(self->settings.screenshot_save_dir);
 
     gtk_file_dialog_set_initial_folder(dialog, folder);
   }
@@ -1544,8 +1495,8 @@ waytator_window_screenshot_folder_clear_clicked(GtkButton    *button,
 
   (void) button;
 
-  g_free(self->screenshot_save_dir);
-  self->screenshot_save_dir = g_strdup("");
+  g_free(self->settings.screenshot_save_dir);
+  self->settings.screenshot_save_dir = g_strdup("");
   waytator_window_save_preferences(self);
   waytator_window_update_screenshot_folder_row(self, row);
 }
@@ -1557,7 +1508,7 @@ waytator_window_screenshot_copy_changed(AdwSwitchRow   *row,
 {
   (void) pspec;
 
-  self->screenshot_copy = adw_switch_row_get_active(row);
+  self->settings.screenshot_copy = adw_switch_row_get_active(row);
   waytator_window_save_preferences(self);
 }
 
@@ -1605,7 +1556,7 @@ waytator_window_new_screenshots_page(WaytatorWindow *self)
 
   adw_preferences_row_set_title(ADW_PREFERENCES_ROW(copy_row), "Copy to clipboard");
   adw_action_row_set_subtitle(ADW_ACTION_ROW(copy_row), "As soon as a screenshot is taken");
-  adw_switch_row_set_active(copy_row, self->screenshot_copy);
+  adw_switch_row_set_active(copy_row, self->settings.screenshot_copy);
   g_signal_connect(copy_row, "notify::active", G_CALLBACK(waytator_window_screenshot_copy_changed), self);
 
   adw_preferences_row_set_title(ADW_PREFERENCES_ROW(hide_row), "Hide waytator");
@@ -1696,7 +1647,7 @@ waytator_window_show_preferences(WaytatorWindow *self)
   default_fill_color_row = ADW_ACTION_ROW(adw_action_row_new());
   opacity_adjustment = gtk_adjustment_new(self->window_background_opacity, 0.1, 1.0, 0.1, 0.1, 0.0);
   opacity_spin_button = GTK_SPIN_BUTTON(gtk_spin_button_new(opacity_adjustment, 0.1, 1));
-  floating_controls_opacity_adjustment = gtk_adjustment_new(self->floating_controls_opacity, 0.0, 1.0, 0.1, 0.1, 0.0);
+  floating_controls_opacity_adjustment = gtk_adjustment_new(self->settings.floating_controls_opacity, 0.0, 1.0, 0.1, 0.1, 0.0);
   floating_controls_opacity_spin_button = GTK_SPIN_BUTTON(gtk_spin_button_new(floating_controls_opacity_adjustment, 0.1, 1));
   default_primary_color_dialog = gtk_color_dialog_new();
   default_highlighter_color_dialog = gtk_color_dialog_new();
@@ -1751,7 +1702,7 @@ waytator_window_show_preferences(WaytatorWindow *self)
                            self->window_background_mode == WAYTATOR_WINDOW_BACKGROUND_TRANSPARENT);
   g_object_set_data(G_OBJECT(background_mode_row), "opacity-row", opacity_row);
   adw_preferences_row_set_title(ADW_PREFERENCES_ROW(floating_controls_blur_row), "Blur the background of controls");
-  adw_switch_row_set_active(floating_controls_blur_row, self->floating_controls_blur);
+  adw_switch_row_set_active(floating_controls_blur_row, self->settings.floating_controls_blur);
   adw_preferences_row_set_title(ADW_PREFERENCES_ROW(floating_controls_opacity_row), "Controls background opacity");
   gtk_spin_button_set_numeric(floating_controls_opacity_spin_button, TRUE);
   gtk_widget_set_valign(GTK_WIDGET(floating_controls_opacity_spin_button), GTK_ALIGN_CENTER);
@@ -2402,7 +2353,7 @@ waytator_window_flash_copy_success(WaytatorWindow *self)
 static gboolean
 waytator_window_saves_to_folder(WaytatorWindow *self)
 {
-  return self->from_capture && self->current_file == NULL && *self->screenshot_save_dir != '\0';
+  return self->from_capture && self->current_file == NULL && *self->settings.screenshot_save_dir != '\0';
 }
 
 //the menu only exists where there is a choice, an image with nowhere obvious to go gets the plain button and a dialog
@@ -2411,7 +2362,7 @@ waytator_window_update_save_menu(WaytatorWindow *self)
 {
   const gboolean to_folder = waytator_window_saves_to_folder(self);
   const gboolean has_menu = self->current_file != NULL || to_folder;
-  g_autofree char *folder = to_folder ? waytator_screenshot_display_path(self->screenshot_save_dir) : NULL;
+  g_autofree char *folder = to_folder ? waytator_screenshot_display_path(self->settings.screenshot_save_dir) : NULL;
   g_autofree char *key = g_strdup_printf("%d:%s", self->current_file != NULL, folder != NULL ? folder : "");
 
   if (self->save_menu == NULL)
@@ -3119,12 +3070,12 @@ waytator_window_save_capture_to_folder(WaytatorWindow *self)
   g_autoptr(GError) error = NULL;
   g_autoptr(GFile) file = NULL;
 
-  if (!self->from_capture || self->current_file != NULL || *self->screenshot_save_dir == '\0')
+  if (!self->from_capture || self->current_file != NULL || *self->settings.screenshot_save_dir == '\0')
     return FALSE;
 
-  file = waytator_screenshot_reserve_file(self->screenshot_save_dir, self->source_name, &error);
+  file = waytator_screenshot_reserve_file(self->settings.screenshot_save_dir, self->source_name, &error);
   if (file == NULL) {
-    g_autofree char *reason = waytator_screenshot_describe_save_error(self->screenshot_save_dir, error);
+    g_autofree char *reason = waytator_screenshot_describe_save_error(self->settings.screenshot_save_dir, error);
     g_autofree char *message = g_strdup_printf("%s Save again to choose another place.", reason);
 
     //the next attempt goes through the dialog, the folder is not going to work this time
@@ -3830,7 +3781,7 @@ waytator_window_finish_capture(WaytatorWindow *self,
 
     waytator_window_open_capture(target, texture, name);
     gtk_window_present(GTK_WINDOW(target));
-    if (self->screenshot_copy)
+    if (self->settings.screenshot_copy)
       waytator_screenshot_copy_texture(texture);
   }
 
@@ -4130,7 +4081,7 @@ waytator_window_dispose(GObject *object)
   g_clear_object(&self->adopt_file);
   g_clear_object(&self->save_menu);
   g_clear_pointer(&self->save_menu_key, g_free);
-  g_clear_pointer(&self->screenshot_save_dir, g_free);
+  waytator_settings_clear(&self->settings);
   waytator_window_clear_history(self);
   g_clear_pointer(&self->document, waytator_document_free);
   g_clear_object(&self->start_window_controls_children);
@@ -4289,9 +4240,7 @@ waytator_window_init_state(WaytatorWindow *self)
   self->window_background_opacity = 0.8;
   self->angle_snap_modifiers = GDK_SHIFT_MASK;
   self->allow_highlighter_overlap = TRUE;
-  self->floating_controls_blur = TRUE;
   self->auto_copy_latest_change = FALSE;
-  self->floating_controls_opacity = 0.7;
   self->default_primary_color = (GdkRGBA){0.96, 0.2, 0.28, 1.0};
   self->default_highlighter_color = (GdkRGBA){1.0, 0.91, 0.2, 1.0};
   self->default_fill_color = (GdkRGBA){0.96, 0.2, 0.28, 0.0};
@@ -4302,8 +4251,7 @@ waytator_window_init_state(WaytatorWindow *self)
     self->palette_colors[i] = waytator_default_palette[i];
   for (int i = 0; i < WAYTATOR_N_SHORTCUTS; i++)
     waytator_window_apply_shortcut(self, i, waytator_shortcuts[i].default_accel);
-  self->screenshot_save_dir = waytator_screenshot_default_save_dir();
-  self->screenshot_copy = TRUE;
+  waytator_settings_init(&self->settings);
   self->capture_hide_waytator = TRUE;
   self->capture_hidden_windows = g_ptr_array_new_with_free_func(g_object_unref);
   waytator_window_load_preferences(self);

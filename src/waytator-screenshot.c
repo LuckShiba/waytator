@@ -1,6 +1,7 @@
 #include "waytator-screenshot.h"
 
 #include "waytator-capture-overlay.h"
+#include "waytator-settings.h"
 
 #include <string.h>
 
@@ -18,8 +19,7 @@ typedef struct {
   gpointer user_data;
   GdkTexture *texture;
   char *name;
-  char *save_dir;
-  gboolean copy;
+  WaytatorSettings settings;
   GBytes *png;
   GFile *file;
   char *save_error;
@@ -30,17 +30,6 @@ typedef struct {
   guint closed_subscription;
   guint wait_timeout_id;
 } WaytatorScreenshot;
-
-char *
-waytator_screenshot_default_save_dir(void)
-{
-  const char *pictures = g_get_user_special_dir(G_USER_DIRECTORY_PICTURES);
-
-  if (pictures != NULL)
-    return g_build_filename(pictures, "Screenshots", NULL);
-
-  return g_build_filename(g_get_home_dir(), "Pictures", "Screenshots", NULL);
-}
 
 //the home directory as a tilde, the way people write it
 char *
@@ -62,28 +51,6 @@ waytator_screenshot_make_name(void)
   return g_date_time_format(now, "Screenshot from %Y-%m-%d %H-%M-%S.png");
 }
 
-//save_dir comes back empty when saving is switched off
-void
-waytator_screenshot_load_settings(char    **save_dir,
-                                  gboolean *copy)
-{
-  g_autofree char *path = g_build_filename(g_get_user_config_dir(), WAYTATOR_SETTINGS_FILE, NULL);
-  g_autoptr(GKeyFile) key_file = g_key_file_new();
-
-  *save_dir = NULL;
-  *copy = TRUE;
-
-  if (g_key_file_load_from_file(key_file, path, G_KEY_FILE_NONE, NULL)) {
-    if (g_key_file_has_key(key_file, WAYTATOR_SETTINGS_GROUP, "screenshot_save_dir", NULL))
-      *save_dir = g_key_file_get_string(key_file, WAYTATOR_SETTINGS_GROUP, "screenshot_save_dir", NULL);
-    if (g_key_file_has_key(key_file, WAYTATOR_SETTINGS_GROUP, "screenshot_copy", NULL))
-      *copy = g_key_file_get_boolean(key_file, WAYTATOR_SETTINGS_GROUP, "screenshot_copy", NULL);
-  }
-
-  if (*save_dir == NULL)
-    *save_dir = waytator_screenshot_default_save_dir();
-}
-
 static void
 waytator_screenshot_free(WaytatorScreenshot *shot)
 {
@@ -100,7 +67,7 @@ waytator_screenshot_free(WaytatorScreenshot *shot)
   g_clear_pointer(&shot->png, g_bytes_unref);
   g_free(shot->output_name);
   g_free(shot->name);
-  g_free(shot->save_dir);
+  waytator_settings_clear(&shot->settings);
   g_free(shot->save_error);
   //the application stayed alive for this, with no window of its own
   g_application_release(shot->app);
@@ -273,10 +240,10 @@ waytator_screenshot_store_thread(GTask        *task,
   (void) cancellable;
 
   shot->png = waytator_screenshot_encode_png(shot->texture);
-  if (*shot->save_dir != '\0') {
-    shot->file = waytator_screenshot_write_file(shot->save_dir, shot->name, shot->png, &error);
+  if (*shot->settings.screenshot_save_dir != '\0') {
+    shot->file = waytator_screenshot_write_file(shot->settings.screenshot_save_dir, shot->name, shot->png, &error);
     if (shot->file == NULL)
-      shot->save_error = waytator_screenshot_describe_save_error(shot->save_dir, error);
+      shot->save_error = waytator_screenshot_describe_save_error(shot->settings.screenshot_save_dir, error);
   }
 
   g_task_return_boolean(task, TRUE);
@@ -388,7 +355,7 @@ waytator_screenshot_notification_body(WaytatorScreenshot *shot)
          : g_strdup_printf("%s Choose Edit to keep it.", shot->save_error);
 
   if (shot->file != NULL) {
-    g_autofree char *folder = waytator_screenshot_display_path(shot->save_dir);
+    g_autofree char *folder = waytator_screenshot_display_path(shot->settings.screenshot_save_dir);
 
     return shot->copied
          ? g_strdup_printf("Saved to %s and copied to the clipboard.", folder)
@@ -537,7 +504,7 @@ waytator_screenshot_stored(GObject      *source_object,
   (void) source_object;
   (void) result;
 
-  if (!shot->copy) {
+  if (!shot->settings.screenshot_copy) {
     waytator_screenshot_notify(shot);
     return;
   }
@@ -567,9 +534,9 @@ waytator_screenshot_captured(WaytatorScreenshot *shot,
 
   shot->texture = g_object_ref(texture);
   shot->name = waytator_screenshot_make_name();
-  waytator_screenshot_load_settings(&shot->save_dir, &shot->copy);
+  waytator_settings_load(&shot->settings);
 
-  if (*shot->save_dir == '\0' && !shot->copy) {
+  if (*shot->settings.screenshot_save_dir == '\0' && !shot->settings.screenshot_copy) {
     waytator_screenshot_notify(shot);
     return;
   }

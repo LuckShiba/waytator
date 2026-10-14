@@ -1,0 +1,107 @@
+#include "waytator-settings.h"
+
+#include "waytator-types.h"
+
+static char *
+waytator_settings_default_save_dir(void)
+{
+  const char *pictures = g_get_user_special_dir(G_USER_DIRECTORY_PICTURES);
+
+  if (pictures != NULL)
+    return g_build_filename(pictures, "Screenshots", NULL);
+
+  return g_build_filename(g_get_home_dir(), "Pictures", "Screenshots", NULL);
+}
+
+char *
+waytator_settings_path(void)
+{
+  return g_build_filename(g_get_user_config_dir(), WAYTATOR_SETTINGS_FILE, NULL);
+}
+
+void
+waytator_settings_init(WaytatorSettings *settings)
+{
+  settings->screenshot_save_dir = waytator_settings_default_save_dir();
+  settings->screenshot_copy = TRUE;
+  settings->floating_controls_blur = TRUE;
+  settings->floating_controls_opacity = 0.7;
+}
+
+void
+waytator_settings_clear(WaytatorSettings *settings)
+{
+  g_clear_pointer(&settings->screenshot_save_dir, g_free);
+}
+
+//a key that is missing or out of range leaves the value it replaces alone
+void
+waytator_settings_read(WaytatorSettings *settings,
+                       GKeyFile         *key_file)
+{
+  if (g_key_file_has_key(key_file, WAYTATOR_SETTINGS_GROUP, "screenshot_save_dir", NULL)) {
+    g_free(settings->screenshot_save_dir);
+    settings->screenshot_save_dir = g_key_file_get_string(key_file,
+                                                          WAYTATOR_SETTINGS_GROUP,
+                                                          "screenshot_save_dir",
+                                                          NULL);
+    if (settings->screenshot_save_dir == NULL)
+      settings->screenshot_save_dir = g_strdup("");
+  }
+
+  if (g_key_file_has_key(key_file, WAYTATOR_SETTINGS_GROUP, "screenshot_copy", NULL))
+    settings->screenshot_copy = g_key_file_get_boolean(key_file,
+                                                       WAYTATOR_SETTINGS_GROUP,
+                                                       "screenshot_copy",
+                                                       NULL);
+
+  if (g_key_file_has_key(key_file, WAYTATOR_SETTINGS_GROUP, "floating_controls_blur", NULL))
+    settings->floating_controls_blur = g_key_file_get_boolean(key_file,
+                                                              WAYTATOR_SETTINGS_GROUP,
+                                                              "floating_controls_blur",
+                                                              NULL);
+
+  if (g_key_file_has_key(key_file, WAYTATOR_SETTINGS_GROUP, "floating_controls_opacity", NULL)) {
+    const double opacity = g_key_file_get_double(key_file,
+                                                 WAYTATOR_SETTINGS_GROUP,
+                                                 "floating_controls_opacity",
+                                                 NULL);
+
+    if (opacity >= 0.0 && opacity <= 1.0)
+      settings->floating_controls_opacity = opacity;
+  }
+}
+
+void
+waytator_settings_write(const WaytatorSettings *settings,
+                        GKeyFile               *key_file)
+{
+  g_key_file_set_string(key_file,
+                        WAYTATOR_SETTINGS_GROUP,
+                        "screenshot_save_dir",
+                        settings->screenshot_save_dir);
+  g_key_file_set_boolean(key_file,
+                         WAYTATOR_SETTINGS_GROUP,
+                         "screenshot_copy",
+                         settings->screenshot_copy);
+  g_key_file_set_boolean(key_file,
+                         WAYTATOR_SETTINGS_GROUP,
+                         "floating_controls_blur",
+                         settings->floating_controls_blur);
+  g_key_file_set_double(key_file,
+                        WAYTATOR_SETTINGS_GROUP,
+                        "floating_controls_opacity",
+                        settings->floating_controls_opacity);
+}
+
+//for the code that runs without a window, which has no copy of the preferences to ask
+void
+waytator_settings_load(WaytatorSettings *settings)
+{
+  g_autofree char *path = waytator_settings_path();
+  g_autoptr(GKeyFile) key_file = g_key_file_new();
+
+  waytator_settings_init(settings);
+  if (g_key_file_load_from_file(key_file, path, G_KEY_FILE_NONE, NULL))
+    waytator_settings_read(settings, key_file);
+}

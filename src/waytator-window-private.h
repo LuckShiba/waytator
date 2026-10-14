@@ -1,6 +1,7 @@
 #pragma once
 
 #include "waytator-document.h"
+#include "waytator-settings.h"
 #include "waytator-types.h"
 #include "waytator-window.h"
 
@@ -129,8 +130,7 @@ struct _WaytatorWindow {
   gboolean never_saved;
   gboolean from_capture;
   GFile *adopt_file;
-  char *screenshot_save_dir;
-  gboolean screenshot_copy;
+  WaytatorSettings settings;
   WaytatorCaptureMode capture_mode;
   gboolean capture_hide_waytator;
   gboolean capture_in_progress;
@@ -182,10 +182,8 @@ struct _WaytatorWindow {
   int close_on_copy_override;
   GdkModifierType angle_snap_modifiers;
   gboolean allow_highlighter_overlap;
-  gboolean floating_controls_blur;
   gboolean auto_copy_latest_change;
   double window_background_opacity;
-  double floating_controls_opacity;
   GdkRGBA default_primary_color;
   GdkRGBA default_highlighter_color;
   GdkRGBA default_fill_color;
