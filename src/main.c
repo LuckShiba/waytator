@@ -196,6 +196,7 @@ static void
 app_edit_screenshot(GdkTexture *texture,
                     GFile      *file,
                     const char *name,
+                    gboolean    save_failed,
                     gpointer    user_data)
 {
   AppOverrides *overrides = user_data;
@@ -204,9 +205,10 @@ app_edit_screenshot(GdkTexture *texture,
 
   app_apply_overrides(window, overrides->close_on_copy, (const char *const *) overrides->shortcuts);
 
-  //the saved file may be gone by the time someone clicks, the capture itself is still around
+  //the saved file may be gone by the time someone clicks, the capture itself is still around.
+  //the folder is only offered again when it worked, one that just failed would only fail again
   if (file == NULL || !waytator_window_open_file(window, file, &error))
-    waytator_window_open_capture(window, texture, name);
+    waytator_window_open_capture(window, texture, name, !save_failed);
 
   gtk_window_present(GTK_WINDOW(window));
 }

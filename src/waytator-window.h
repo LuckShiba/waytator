@@ -20,7 +20,8 @@ gboolean waytator_window_open_bytes(WaytatorWindow *self,
                                     GError        **error);
 void waytator_window_open_capture(WaytatorWindow *self,
                                   GdkTexture     *texture,
-                                  const char     *display_name);
+                                  const char     *display_name,
+                                  gboolean        to_folder);
 gboolean waytator_window_is_empty(WaytatorWindow *self);
 WaytatorWindow *waytator_window_for_new_image(GtkApplication *app);
 void waytator_window_start_capture(WaytatorWindow     *self,

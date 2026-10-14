@@ -7,10 +7,12 @@
 
 G_BEGIN_DECLS
 
-//file is set when the screenshot is already on disk, otherwise it only lives in texture
+//file is set when the screenshot is already on disk, otherwise it only lives in texture.
+//save_failed is set when saving it to the screenshot folder was tried and did not work
 typedef void (*WaytatorScreenshotEditFunc)(GdkTexture *texture,
                                            GFile      *file,
                                            const char *name,
+                                           gboolean    save_failed,
                                            gpointer    user_data);
 
 //file is NULL when the capture was not saved, save_error says why when saving failed

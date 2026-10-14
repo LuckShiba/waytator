@@ -92,7 +92,7 @@ waytator_screenshot_free(WaytatorScreenshot *shot)
 static void
 waytator_screenshot_edit(WaytatorScreenshot *shot)
 {
-  shot->edit(shot->texture, shot->file, shot->name, shot->user_data);
+  shot->edit(shot->texture, shot->file, shot->name, shot->save_error != NULL, shot->user_data);
 }
 
 //the reason in words someone who is not looking at a terminal can act on

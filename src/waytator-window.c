@@ -3586,17 +3586,19 @@ waytator_window_open_bytes(WaytatorWindow *self,
   return TRUE;
 }
 
-//a screenshot that is not on disk yet, saving it starts out in the screenshot folder
+//a screenshot that is not on disk yet. with to_folder saving it starts out in the screenshot folder,
+//without it saving asks where, for when the folder just failed to take this very capture
 void
 waytator_window_open_capture(WaytatorWindow *self,
                              GdkTexture     *texture,
-                             const char     *display_name)
+                             const char     *display_name,
+                             gboolean        to_folder)
 {
   g_return_if_fail(WAYTATOR_IS_WINDOW(self));
   g_return_if_fail(GDK_IS_TEXTURE(texture));
 
   waytator_window_set_image(self, texture, NULL, display_name);
-  self->from_capture = TRUE;
+  self->from_capture = to_folder;
   waytator_window_reset_save_button(self);
 }
 
@@ -3876,7 +3878,7 @@ waytator_window_finish_capture(WaytatorWindow *self,
     if (self->texture != NULL)
       target = waytator_window_for_new_image(gtk_window_get_application(GTK_WINDOW(self)));
 
-    waytator_window_open_capture(target, texture, name);
+    waytator_window_open_capture(target, texture, name, TRUE);
     gtk_window_present(GTK_WINDOW(target));
     waytator_window_store_capture(target, texture, name);
   }
