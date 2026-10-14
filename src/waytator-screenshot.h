@@ -2,6 +2,7 @@
 
 #include <gtk/gtk.h>
 
+#include "waytator-settings.h"
 #include "waytator-types.h"
 
 G_BEGIN_DECLS
@@ -12,6 +13,12 @@ typedef void (*WaytatorScreenshotEditFunc)(GdkTexture *texture,
                                            const char *name,
                                            gpointer    user_data);
 
+//file is NULL when the capture was not saved, save_error says why when saving failed
+typedef void (*WaytatorScreenshotStoredFunc)(GFile      *file,
+                                             const char *save_error,
+                                             gboolean    copied,
+                                             gpointer    user_data);
+
 char *waytator_screenshot_display_path(const char *path);
 char *waytator_screenshot_make_name(void);
 char *waytator_screenshot_describe_save_error(const char   *save_dir,
@@ -19,7 +26,11 @@ char *waytator_screenshot_describe_save_error(const char   *save_dir,
 GFile *waytator_screenshot_reserve_file(const char *save_dir,
                                         const char *name,
                                         GError    **error);
-void waytator_screenshot_copy_texture(GdkTexture *texture);
+void waytator_screenshot_store(GdkTexture                  *texture,
+                               const char                  *name,
+                               const WaytatorSettings      *settings,
+                               WaytatorScreenshotStoredFunc done,
+                               gpointer                     user_data);
 void waytator_screenshot_capture_background(GApplication              *app,
                                             WaytatorCaptureMode        mode,
                                             const char                *output_name,

@@ -2394,7 +2394,8 @@ waytator_window_reset_save_button(WaytatorWindow *self)
 {
   const gboolean has_unsaved_changes = waytator_window_has_unsaved_changes(self);
   //a capture or a piped image is worth saving before the first edit, it exists nowhere else
-  const gboolean can_save = has_unsaved_changes || (self->texture != NULL && self->never_saved);
+  const gboolean can_save = !self->capture_storing
+                          && (has_unsaved_changes || (self->texture != NULL && self->never_saved));
 
   gtk_stack_set_visible_child(self->save_icon_stack, GTK_WIDGET(self->save_default_icon));
   gtk_widget_set_sensitive(GTK_WIDGET(self->save_button), can_save);
@@ -3138,7 +3139,8 @@ waytator_window_save_as_action(GtkWidget  *widget,
   (void) action_name;
   (void) parameter;
 
-  if (self->texture == NULL || self->save_in_progress || self->after_save != WAYTATOR_AFTER_SAVE_NONE)
+  if (self->texture == NULL || self->save_in_progress || self->capture_storing
+      || self->after_save != WAYTATOR_AFTER_SAVE_NONE)
     return;
 
   waytator_window_show_save_dialog(self);
@@ -3153,6 +3155,9 @@ waytator_window_save_copy_action(GtkWidget  *widget,
 
   (void) action_name;
   (void) parameter;
+
+  if (self->capture_storing)
+    return;
 
   self->after_save = WAYTATOR_AFTER_SAVE_NONE;
   waytator_window_show_save_dialog(self);
@@ -3169,7 +3174,8 @@ waytator_window_save_image_action(GtkWidget  *widget,
   (void) action_name;
   (void) parameter;
 
-  if (self->texture == NULL || self->save_in_progress || self->after_save != WAYTATOR_AFTER_SAVE_NONE)
+  if (self->texture == NULL || self->save_in_progress || self->capture_storing
+      || self->after_save != WAYTATOR_AFTER_SAVE_NONE)
     return;
 
   if (self->current_file == NULL)
@@ -3182,7 +3188,8 @@ static void
 waytator_window_save_then(WaytatorWindow   *self,
                           WaytatorAfterSave after_save)
 {
-  if (self->texture == NULL || self->save_in_progress || self->after_save != WAYTATOR_AFTER_SAVE_NONE)
+  if (self->texture == NULL || self->save_in_progress || self->capture_storing
+      || self->after_save != WAYTATOR_AFTER_SAVE_NONE)
     return;
 
   self->after_save = after_save;
@@ -3482,6 +3489,8 @@ waytator_window_clear_image(WaytatorWindow *self)
   g_clear_object(&self->adopt_file);
   self->never_saved = FALSE;
   self->from_capture = FALSE;
+  self->capture_storing = FALSE;
+  self->image_serial++;
   self->crop_start_x = 0.0;
   self->crop_start_y = 0.0;
   self->crop_end_x = 0.0;
@@ -3759,6 +3768,66 @@ waytator_window_restore_after_capture(WaytatorWindow *self)
   return restored;
 }
 
+typedef struct {
+  WaytatorWindow *window;
+  guint serial;
+} WaytatorCaptureStore;
+
+static void
+waytator_window_capture_stored(GFile      *file,
+                               const char *save_error,
+                               gboolean    copied,
+                               gpointer    user_data)
+{
+  WaytatorCaptureStore *store = user_data;
+  WaytatorWindow *self = store->window;
+
+  (void) copied;
+
+  //the window has moved on to another image since, this file is not its business any more
+  if (store->serial == self->image_serial) {
+    self->capture_storing = FALSE;
+    if (file != NULL) {
+      g_clear_object(&self->current_file);
+      self->current_file = g_object_ref(file);
+      g_free(self->source_name);
+      self->source_name = g_file_get_basename(file);
+      gtk_label_set_text(self->file_label, self->source_name);
+      self->never_saved = FALSE;
+    } else if (save_error != NULL) {
+      g_autofree char *message = g_strdup_printf("%s Save to choose another place.", save_error);
+
+      //the folder is not going to work this time, so saving asks instead
+      self->from_capture = FALSE;
+      waytator_window_show_error(self, message);
+    }
+    waytator_window_sync_state(self);
+  }
+
+  g_object_unref(self);
+  g_free(store);
+}
+
+//every capture lands in the screenshot folder right away, saving afterwards updates that file
+static void
+waytator_window_store_capture(WaytatorWindow *self,
+                              GdkTexture     *texture,
+                              const char     *name)
+{
+  WaytatorCaptureStore *store;
+
+  if (*self->settings.screenshot_save_dir == '\0' && !self->settings.screenshot_copy)
+    return;
+
+  store = g_new0(WaytatorCaptureStore, 1);
+  store->window = g_object_ref(self);
+  store->serial = self->image_serial;
+  //a save now would race the one in the background for the name
+  self->capture_storing = *self->settings.screenshot_save_dir != '\0';
+  waytator_window_reset_save_button(self);
+  waytator_screenshot_store(texture, name, &self->settings, waytator_window_capture_stored, store);
+}
+
 static void
 waytator_window_finish_capture(WaytatorWindow *self,
                                GdkTexture     *texture,
@@ -3784,8 +3853,7 @@ waytator_window_finish_capture(WaytatorWindow *self,
 
     waytator_window_open_capture(target, texture, name);
     gtk_window_present(GTK_WINDOW(target));
-    if (self->settings.screenshot_copy)
-      waytator_screenshot_copy_texture(texture);
+    waytator_window_store_capture(target, texture, name);
   }
 
   if (error != NULL) {

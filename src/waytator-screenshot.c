@@ -20,7 +20,6 @@ typedef struct {
   GdkTexture *texture;
   char *name;
   WaytatorSettings settings;
-  GBytes *png;
   GFile *file;
   char *save_error;
   gboolean copied;
@@ -64,7 +63,6 @@ waytator_screenshot_free(WaytatorScreenshot *shot)
   g_clear_object(&shot->connection);
   g_clear_object(&shot->texture);
   g_clear_object(&shot->file);
-  g_clear_pointer(&shot->png, g_bytes_unref);
   g_free(shot->output_name);
   g_free(shot->name);
   waytator_settings_clear(&shot->settings);
@@ -239,26 +237,130 @@ waytator_screenshot_encode_png(GdkTexture *texture)
   return g_bytes_new_take(buffer, length);
 }
 
+//a capture on its way to the folder and the clipboard
+typedef struct {
+  GdkTexture *texture;
+  char *name;
+  char *save_dir;
+  gboolean copy;
+  GBytes *png;
+  GFile *file;
+  char *save_error;
+  WaytatorScreenshotStoredFunc done;
+  gpointer user_data;
+} WaytatorScreenshotStore;
+
+static void
+waytator_screenshot_store_free(WaytatorScreenshotStore *store)
+{
+  g_clear_object(&store->texture);
+  g_clear_object(&store->file);
+  g_clear_pointer(&store->png, g_bytes_unref);
+  g_free(store->name);
+  g_free(store->save_dir);
+  g_free(store->save_error);
+  g_free(store);
+}
+
+static void
+waytator_screenshot_store_finish(WaytatorScreenshotStore *store,
+                                 gboolean                 copied)
+{
+  store->done(store->file, store->save_error, copied, store->user_data);
+  waytator_screenshot_store_free(store);
+  g_application_release(g_application_get_default());
+}
+
 static void
 waytator_screenshot_store_thread(GTask        *task,
                                  gpointer      source_object,
                                  gpointer      task_data,
                                  GCancellable *cancellable)
 {
-  WaytatorScreenshot *shot = task_data;
+  WaytatorScreenshotStore *store = task_data;
   g_autoptr(GError) error = NULL;
 
   (void) source_object;
   (void) cancellable;
 
-  shot->png = waytator_screenshot_encode_png(shot->texture);
-  if (*shot->settings.screenshot_save_dir != '\0') {
-    shot->file = waytator_screenshot_write_file(shot->settings.screenshot_save_dir, shot->name, shot->png, &error);
-    if (shot->file == NULL)
-      shot->save_error = waytator_screenshot_describe_save_error(shot->settings.screenshot_save_dir, error);
+  store->png = waytator_screenshot_encode_png(store->texture);
+  if (*store->save_dir != '\0') {
+    store->file = waytator_screenshot_write_file(store->save_dir, store->name, store->png, &error);
+    if (store->file == NULL)
+      store->save_error = waytator_screenshot_describe_save_error(store->save_dir, error);
   }
 
   g_task_return_boolean(task, TRUE);
+}
+
+static void
+waytator_screenshot_copy_done(GObject      *source_object,
+                              GAsyncResult *result,
+                              gpointer      user_data)
+{
+  GSubprocess *process = G_SUBPROCESS(source_object);
+
+  waytator_screenshot_store_finish(user_data,
+                                   g_subprocess_communicate_finish(process, result, NULL, NULL, NULL)
+                                   && g_subprocess_get_successful(process));
+}
+
+static void
+waytator_screenshot_stored(GObject      *source_object,
+                           GAsyncResult *result,
+                           gpointer      user_data)
+{
+  WaytatorScreenshotStore *store = user_data;
+  g_autoptr(GSubprocess) process = NULL;
+
+  (void) source_object;
+  (void) result;
+
+  if (!store->copy) {
+    waytator_screenshot_store_finish(store, FALSE);
+    return;
+  }
+
+  //wl-copy holds the image on its own, so it stays on the clipboard after waytator is gone
+  process = g_subprocess_new(G_SUBPROCESS_FLAGS_STDIN_PIPE
+                               | G_SUBPROCESS_FLAGS_STDOUT_SILENCE
+                               | G_SUBPROCESS_FLAGS_STDERR_SILENCE,
+                             NULL,
+                             "wl-copy",
+                             "--type",
+                             "image/png",
+                             NULL);
+  if (process == NULL) {
+    waytator_screenshot_store_finish(store, FALSE);
+    return;
+  }
+
+  g_subprocess_communicate_async(process, store->png, NULL, waytator_screenshot_copy_done, store);
+}
+
+//saves and copies a capture as the settings say, encoding a big one takes a moment so it runs off the main thread
+void
+waytator_screenshot_store(GdkTexture                  *texture,
+                          const char                  *name,
+                          const WaytatorSettings      *settings,
+                          WaytatorScreenshotStoredFunc done,
+                          gpointer                     user_data)
+{
+  WaytatorScreenshotStore *store = g_new0(WaytatorScreenshotStore, 1);
+  g_autoptr(GTask) task = NULL;
+
+  store->texture = g_object_ref(texture);
+  store->name = g_strdup(name);
+  store->save_dir = g_strdup(settings->screenshot_save_dir);
+  store->copy = settings->screenshot_copy;
+  store->done = done;
+  store->user_data = user_data;
+
+  //closing the last window must not cut a save off halfway
+  g_application_hold(g_application_get_default());
+  task = g_task_new(NULL, NULL, waytator_screenshot_stored, store);
+  g_task_set_task_data(task, store, NULL);
+  g_task_run_in_thread(task, waytator_screenshot_store_thread);
 }
 
 static void
@@ -482,92 +584,23 @@ waytator_screenshot_notify(WaytatorScreenshot *shot)
 }
 
 static void
-waytator_screenshot_copy_thread(GTask        *task,
-                                gpointer      source_object,
-                                gpointer      task_data,
-                                GCancellable *cancellable)
-{
-  g_autoptr(GBytes) png = waytator_screenshot_encode_png(GDK_TEXTURE(task_data));
-  g_autoptr(GSubprocess) process = NULL;
-
-  (void) task;
-  (void) source_object;
-  (void) cancellable;
-
-  process = g_subprocess_new(G_SUBPROCESS_FLAGS_STDIN_PIPE
-                               | G_SUBPROCESS_FLAGS_STDOUT_SILENCE
-                               | G_SUBPROCESS_FLAGS_STDERR_SILENCE,
-                             NULL,
-                             "wl-copy",
-                             "--type",
-                             "image/png",
-                             NULL);
-  if (process != NULL)
-    g_subprocess_communicate(process, png, NULL, NULL, NULL, NULL);
-}
-
-//wl-copy holds the image, so it stays on the clipboard after waytator is gone, encoding a big one takes a moment
-void
-waytator_screenshot_copy_texture(GdkTexture *texture)
-{
-  g_autoptr(GTask) task = g_task_new(NULL, NULL, NULL, NULL);
-
-  g_task_set_task_data(task, g_object_ref(texture), g_object_unref);
-  g_task_run_in_thread(task, waytator_screenshot_copy_thread);
-}
-
-static void
-waytator_screenshot_copy_done(GObject      *source_object,
-                              GAsyncResult *result,
-                              gpointer      user_data)
+waytator_screenshot_notify_stored(GFile      *file,
+                                  const char *save_error,
+                                  gboolean    copied,
+                                  gpointer    user_data)
 {
   WaytatorScreenshot *shot = user_data;
-  GSubprocess *process = G_SUBPROCESS(source_object);
 
-  shot->copied = g_subprocess_communicate_finish(process, result, NULL, NULL, NULL)
-              && g_subprocess_get_successful(process);
+  shot->file = file != NULL ? g_object_ref(file) : NULL;
+  shot->save_error = g_strdup(save_error);
+  shot->copied = copied;
   waytator_screenshot_notify(shot);
-}
-
-static void
-waytator_screenshot_stored(GObject      *source_object,
-                           GAsyncResult *result,
-                           gpointer      user_data)
-{
-  WaytatorScreenshot *shot = user_data;
-  g_autoptr(GSubprocess) process = NULL;
-
-  (void) source_object;
-  (void) result;
-
-  if (!shot->settings.screenshot_copy) {
-    waytator_screenshot_notify(shot);
-    return;
-  }
-
-  //there is no window to keep a clipboard alive, wl-copy holds the image on its own
-  process = g_subprocess_new(G_SUBPROCESS_FLAGS_STDIN_PIPE
-                               | G_SUBPROCESS_FLAGS_STDOUT_SILENCE
-                               | G_SUBPROCESS_FLAGS_STDERR_SILENCE,
-                             NULL,
-                             "wl-copy",
-                             "--type",
-                             "image/png",
-                             NULL);
-  if (process == NULL) {
-    waytator_screenshot_notify(shot);
-    return;
-  }
-
-  g_subprocess_communicate_async(process, shot->png, NULL, waytator_screenshot_copy_done, shot);
 }
 
 static void
 waytator_screenshot_captured(WaytatorScreenshot *shot,
                              GdkTexture         *texture)
 {
-  g_autoptr(GTask) task = NULL;
-
   shot->texture = g_object_ref(texture);
   shot->name = waytator_screenshot_make_name();
   waytator_settings_load(&shot->settings);
@@ -577,9 +610,7 @@ waytator_screenshot_captured(WaytatorScreenshot *shot,
     return;
   }
 
-  task = g_task_new(NULL, NULL, waytator_screenshot_stored, shot);
-  g_task_set_task_data(task, shot, NULL);
-  g_task_run_in_thread(task, waytator_screenshot_store_thread);
+  waytator_screenshot_store(texture, shot->name, &shot->settings, waytator_screenshot_notify_stored, shot);
 }
 
 //nothing was captured, so there is nothing to offer but the reason
