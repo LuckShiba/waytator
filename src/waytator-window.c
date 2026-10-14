@@ -3843,6 +3843,10 @@ waytator_window_finish_capture(WaytatorWindow *self,
 {
   WaytatorWindow *target = self;
 
+  //closed while the capture was on screen, the capture goes with it
+  if (self->disposed)
+    return;
+
   self->capture_in_progress = FALSE;
   g_clear_pointer(&self->capture_output_name, g_free);
   waytator_window_restore_after_capture(self);
@@ -3897,6 +3901,9 @@ waytator_window_capture_ready(GObject      *source_object,
   WaytatorCaptureOutput *output = NULL;
 
   (void) source_object;
+
+  if (self->disposed)
+    return;
 
   if (outputs == NULL) {
     //the portal reports a declined permission prompt as a cancellation
@@ -3975,6 +3982,9 @@ waytator_window_capture_retake(gboolean            hide_waytator,
                                gpointer            user_data)
 {
   g_autoptr(WaytatorWindow) self = WAYTATOR_WINDOW(user_data);
+
+  if (self->disposed)
+    return;
 
   //the box doubles as the preference
   self->capture_hide_waytator = hide_waytator;
@@ -4136,6 +4146,19 @@ static void
 waytator_window_dispose(GObject *object)
 {
   WaytatorWindow *self = WAYTATOR_WINDOW(object);
+
+  //a capture or a background save can still call back, this tells them the window is gone
+  self->disposed = TRUE;
+  self->image_serial++;
+  self->capture_in_progress = FALSE;
+  self->capture_storing = FALSE;
+  //whatever this capture hid should not stay hidden with nobody left to bring it back
+  for (guint i = 0; self->capture_hidden_windows != NULL && i < self->capture_hidden_windows->len; i++) {
+    GtkWindow *window = g_ptr_array_index(self->capture_hidden_windows, i);
+
+    if (window != GTK_WINDOW(self))
+      gtk_window_present(window);
+  }
 
   g_clear_object(&self->current_file);
   g_clear_pointer(&self->source_name, g_free);

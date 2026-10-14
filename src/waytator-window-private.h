@@ -129,6 +129,8 @@ struct _WaytatorWindow {
   gboolean save_in_progress;
   gboolean never_saved;
   gboolean from_capture;
+  //set in dispose, for callbacks that hold a reference past it
+  gboolean disposed;
   //a fresh capture is still being written to the screenshot folder
   gboolean capture_storing;
   //counts the images this window has shown, so late news about an old one can be told apart
