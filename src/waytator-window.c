@@ -3970,10 +3970,11 @@ waytator_window_store_capture(WaytatorWindow *self,
   waytator_screenshot_store(texture, name, &self->settings, waytator_window_capture_stored, store);
 }
 
-static void waytator_window_begin_capture(WaytatorWindow     *self,
-                                          WaytatorCaptureMode mode,
-                                          const char         *output_name,
-                                          guint               delay_seconds);
+static void waytator_window_begin_capture(WaytatorWindow       *self,
+                                          WaytatorCaptureMode   mode,
+                                          const char           *output_name,
+                                          guint                 delay_seconds,
+                                          WaytatorCaptureEarly *early);
 
 //a capture the portal turned down for want of a permission, kept to be taken again once it is given
 typedef struct {
@@ -4019,7 +4020,7 @@ waytator_window_capture_allowed(GObject      *source_object,
   //back out of sight, so the capture goes the way it would have the first time
   if (permission->temporary)
     gtk_widget_set_visible(GTK_WIDGET(self), FALSE);
-  waytator_window_begin_capture(self, permission->mode, permission->output_name, 0);
+  waytator_window_begin_capture(self, permission->mode, permission->output_name, 0, NULL);
   waytator_capture_permission_free(permission);
 }
 
@@ -4229,10 +4230,14 @@ waytator_window_capture_after_wait(gpointer user_data)
   WaytatorWindow *self = WAYTATOR_WINDOW(user_data);
 
   self->capture_delay_id = 0;
-  if (waytator_capture_uses_gnome_ui())
+  if (waytator_capture_uses_gnome_ui()) {
     waytator_capture_gnome_ui_async(waytator_window_gnome_capture_ready, g_object_ref(self));
-  else
+  } else if (self->capture_early != NULL) {
+    waytator_capture_early_take_async(self->capture_early, waytator_window_capture_ready, g_object_ref(self));
+    g_clear_pointer(&self->capture_early, waytator_capture_early_unref);
+  } else {
     waytator_capture_outputs_async(NULL, waytator_window_capture_ready, g_object_ref(self));
+  }
   return G_SOURCE_REMOVE;
 }
 
@@ -4252,6 +4257,10 @@ waytator_window_take_capture(WaytatorWindow *self,
 
   if (wait)
     delay_ms = MAX(delay_ms, WAYTATOR_CAPTURE_SETTLE_MS);
+
+  //taken before anything left the screen, so it would show what the wait is for
+  if (delay_ms != 0)
+    g_clear_pointer(&self->capture_early, waytator_capture_early_unref);
 
   if (delay_ms == 0) {
     waytator_window_capture_after_wait(self);
@@ -4280,13 +4289,17 @@ waytator_window_capture_retake(gboolean            hide_waytator,
 }
 
 static void
-waytator_window_begin_capture(WaytatorWindow     *self,
-                              WaytatorCaptureMode mode,
-                              const char         *output_name,
-                              guint               delay_seconds)
+waytator_window_begin_capture(WaytatorWindow       *self,
+                              WaytatorCaptureMode   mode,
+                              const char           *output_name,
+                              guint                 delay_seconds,
+                              WaytatorCaptureEarly *early)
 {
-  if (self->capture_in_progress)
+  if (self->capture_in_progress) {
+    if (early != NULL)
+      waytator_capture_early_unref(early);
     return;
+  }
 
   self->capture_in_progress = TRUE;
   self->capture_window_was_visible = gtk_widget_get_visible(GTK_WIDGET(self));
@@ -4294,19 +4307,21 @@ waytator_window_begin_capture(WaytatorWindow     *self,
   self->capture_retake = FALSE;
   self->capture_output_name = g_strdup(output_name);
   self->capture_mode = mode;
+  self->capture_early = early;
   waytator_window_take_capture(self, FALSE, delay_seconds);
 }
 
 //for the command line
 void
-waytator_window_start_capture(WaytatorWindow     *self,
-                              WaytatorCaptureMode mode,
-                              const char         *output_name,
-                              guint               delay_seconds)
+waytator_window_start_capture(WaytatorWindow       *self,
+                              WaytatorCaptureMode   mode,
+                              const char           *output_name,
+                              guint                 delay_seconds,
+                              WaytatorCaptureEarly *early)
 {
   g_return_if_fail(WAYTATOR_IS_WINDOW(self));
 
-  waytator_window_begin_capture(self, mode, output_name, delay_seconds);
+  waytator_window_begin_capture(self, mode, output_name, delay_seconds, early);
 }
 
 static void
@@ -4323,7 +4338,8 @@ waytator_window_capture_action(GtkWidget  *widget,
                                   ? WAYTATOR_CAPTURE_SCREEN
                                   : WAYTATOR_CAPTURE_AREA,
                                 NULL,
-                                delay != NULL ? g_variant_get_uint32(delay) : 0);
+                                delay != NULL ? g_variant_get_uint32(delay) : 0,
+                                NULL);
 }
 
 static void
@@ -4465,6 +4481,7 @@ waytator_window_dispose(GObject *object)
   if (self->capture_delay_id != 0)
     g_source_remove(self->capture_delay_id);
   self->capture_delay_id = 0;
+  g_clear_pointer(&self->capture_early, waytator_capture_early_unref);
   g_clear_pointer(&self->capture_output_name, g_free);
   g_clear_pointer(&self->capture_hidden_windows, g_ptr_array_unref);
   g_clear_object(&self->adopt_file);

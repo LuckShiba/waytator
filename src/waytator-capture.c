@@ -5,6 +5,7 @@
 
 #include <errno.h>
 #include <math.h>
+#include <string.h>
 #include <sys/mman.h>
 #include <unistd.h>
 #include <wayland-client.h>
@@ -194,8 +195,14 @@ waytator_capture_convert_row(uint32_t      format,
   switch (format) {
   case WL_SHM_FORMAT_XRGB8888:
   case WL_SHM_FORMAT_ARGB8888:
+#if G_BYTE_ORDER == G_LITTLE_ENDIAN
+    //already how RGB24 lies in memory, whose spare byte is left undefined, so the row is taken as it is.
+    //the most common format by far, and a whole screen of it took tens of milliseconds pixel by pixel
+    memcpy(dst, src, (gsize) width * 4);
+#else
     for (x = 0; x < width; x++, src += 4)
       dst[x] = waytator_capture_pack_pixel(src[2], src[1], src[0]);
+#endif
     break;
   case WL_SHM_FORMAT_XBGR8888:
   case WL_SHM_FORMAT_ABGR8888:
@@ -1938,4 +1945,77 @@ waytator_capture_outputs_finish(GAsyncResult *result,
   g_return_val_if_fail(g_task_is_valid(result, NULL), NULL);
 
   return g_task_propagate_pointer(G_TASK(result), error);
+}
+
+struct _WaytatorCaptureEarly {
+  gboolean done;
+  GPtrArray *outputs;
+  GError *error;
+  //whoever took it before the capture was over
+  GTask *taker;
+};
+
+static void
+waytator_capture_early_clear(gpointer data)
+{
+  WaytatorCaptureEarly *early = data;
+
+  g_clear_pointer(&early->outputs, g_ptr_array_unref);
+  g_clear_error(&early->error);
+}
+
+void
+waytator_capture_early_unref(WaytatorCaptureEarly *early)
+{
+  g_rc_box_release_full(early, waytator_capture_early_clear);
+}
+
+static void
+waytator_capture_early_hand_over(WaytatorCaptureEarly *early)
+{
+  GTask *taker = g_steal_pointer(&early->taker);
+
+  if (early->outputs != NULL)
+    g_task_return_pointer(taker, g_steal_pointer(&early->outputs), (GDestroyNotify) g_ptr_array_unref);
+  else
+    g_task_return_error(taker, g_steal_pointer(&early->error));
+  g_object_unref(taker);
+}
+
+static void
+waytator_capture_early_ready(GObject      *source_object,
+                             GAsyncResult *result,
+                             gpointer      user_data)
+{
+  WaytatorCaptureEarly *early = user_data;
+
+  (void) source_object;
+
+  early->outputs = waytator_capture_outputs_finish(result, &early->error);
+  early->done = TRUE;
+  if (early->taker != NULL)
+    waytator_capture_early_hand_over(early);
+  waytator_capture_early_unref(early);
+}
+
+WaytatorCaptureEarly *
+waytator_capture_early_start(void)
+{
+  WaytatorCaptureEarly *early = g_rc_box_new0(WaytatorCaptureEarly);
+
+  waytator_capture_outputs_async(NULL, waytator_capture_early_ready, g_rc_box_acquire(early));
+  return early;
+}
+
+void
+waytator_capture_early_take_async(WaytatorCaptureEarly *early,
+                                  GAsyncReadyCallback   callback,
+                                  gpointer              user_data)
+{
+  g_return_if_fail(early->taker == NULL);
+
+  early->taker = g_task_new(NULL, NULL, callback, user_data);
+  g_task_set_source_tag(early->taker, waytator_capture_outputs_async);
+  if (early->done)
+    waytator_capture_early_hand_over(early);
 }

@@ -112,14 +112,30 @@ waytator_capture_texture_new(cairo_surface_t *surface,
   return gdk_memory_texture_new(width, height, GDK_MEMORY_DEFAULT, bytes, stride);
 }
 
+//the whole frame, shared with the surface rather than copied: the texture format skips the spare byte
+//just as RGB24 does, and a copy of a whole screen held up the overlay and the editor alike
 GdkTexture *
 waytator_capture_output_create_texture(WaytatorCaptureOutput *output)
 {
-  return waytator_capture_texture_new(output->surface,
-                                      0,
-                                      0,
-                                      cairo_image_surface_get_width(output->surface),
-                                      cairo_image_surface_get_height(output->surface));
+  cairo_surface_t *surface = output->surface;
+  const int height = cairo_image_surface_get_height(surface);
+  const gsize stride = cairo_image_surface_get_stride(surface);
+  g_autoptr(GBytes) bytes = NULL;
+
+  cairo_surface_flush(surface);
+  bytes = g_bytes_new_with_free_func(cairo_image_surface_get_data(surface),
+                                     stride * (gsize) height,
+                                     (GDestroyNotify) cairo_surface_destroy,
+                                     cairo_surface_reference(surface));
+  return gdk_memory_texture_new(cairo_image_surface_get_width(surface),
+                                height,
+#if G_BYTE_ORDER == G_LITTLE_ENDIAN
+                                GDK_MEMORY_B8G8R8X8,
+#else
+                                GDK_MEMORY_X8R8G8B8,
+#endif
+                                bytes,
+                                stride);
 }
 
 //the screen a capture is about when there is nothing to ask, NULL when the overlay has to

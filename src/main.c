@@ -248,6 +248,22 @@ app_parse_delay(const char *text,
   return TRUE;
 }
 
+//the first window to draw sets up the gpu, a few dozen milliseconds that gtk keeps the result of
+//from then on, so it is done while a capture is still on its way rather than after it arrives.
+//vulkan is what gtk goes for first, unless GSK_RENDERER says otherwise
+static void
+app_warm_up_renderer(void)
+{
+  g_autoptr(GskRenderer) renderer = NULL;
+
+  if (g_getenv("GSK_RENDERER") != NULL)
+    return;
+
+  renderer = gsk_vulkan_renderer_new();
+  if (gsk_renderer_realize_for_display(renderer, gdk_display_get_default(), NULL))
+    gsk_renderer_unrealize(renderer);
+}
+
 static int
 app_command_line(GApplication            *app,
                  GApplicationCommandLine *command_line,
@@ -269,6 +285,7 @@ app_command_line(GApplication            *app,
   const char *stdin_name = "stdin.png";
   g_autoptr(GError) error = NULL;
   g_autoptr(GFile) file = NULL;
+  WaytatorCaptureEarly *early = NULL;
   WaytatorWindow *window;
 
   (void) user_data;
@@ -468,6 +485,13 @@ app_command_line(GApplication            *app,
     goto done;
   }
 
+  //the capture has nothing to wait for on screen, so it runs while the window is built rather than after
+  if (screenshot
+      && delay_seconds == 0
+      && !waytator_capture_uses_gnome_ui()
+      && !waytator_window_any_visible(GTK_APPLICATION(app)))
+    early = waytator_capture_early_start();
+
   //a bare launch brings back whatever is already open, anything carrying an image gets a window to itself
   window = screenshot || use_stdin || file != NULL
          ? waytator_window_for_new_image(GTK_APPLICATION(app))
@@ -476,7 +500,11 @@ app_command_line(GApplication            *app,
 
   //the window shows itself once the capture is over
   if (screenshot) {
-    waytator_window_start_capture(window, capture_mode, capture_screen, delay_seconds);
+    const gboolean capture_on_its_way = early != NULL;
+
+    waytator_window_start_capture(window, capture_mode, capture_screen, delay_seconds, g_steal_pointer(&early));
+    if (capture_on_its_way)
+      app_warm_up_renderer();
     goto done;
   }
 
@@ -511,6 +539,8 @@ done:
 
 //no theme goes by this name, so gtk loads none and every icon comes from waytator, gtk or libadwaita
 #define WAYTATOR_ICON_THEME "waytator-bundled-only"
+//what libadwaita swaps the gtk theme for when it starts, its own stylesheet does all of the styling
+#define WAYTATOR_GTK_THEME "Adwaita-empty"
 
 static void (*app_settings_parent_constructed)(GObject *object);
 
@@ -521,14 +551,18 @@ app_settings_constructed(GObject *object)
     app_settings_parent_constructed(object);
 
   g_object_set(object, "gtk-icon-theme-name", WAYTATOR_ICON_THEME, NULL);
+  //libadwaita leaves a theme named in GTK_THEME alone, and so does this
+  if (g_getenv("GTK_THEME") == NULL)
+    g_object_set(object, "gtk-theme-name", WAYTATOR_GTK_THEME, NULL);
 }
 
-//gtk starts loading the icon theme its settings name while it builds them, during its own startup and
-//before anything here runs, and once that has begun a new name waits for it to finish. a big theme like
-//Papirus took most of a second, twice when settings.ini and the desktop named different ones, so the
-//name is set the moment the settings exist
+//gtk loads the icon theme and the gtk theme its settings name while it builds them, during its own
+//startup and before anything here runs, and a new icon theme name then waits for that load to finish.
+//a big icon theme like Papirus took most of a second, twice when settings.ini and the desktop named
+//different ones, and libadwaita throws the gtk theme away again, so both are set the moment the
+//settings exist
 static void
-app_use_bundled_icons(void)
+app_skip_desktop_themes(void)
 {
   GObjectClass *settings_class = g_type_class_ref(GTK_TYPE_SETTINGS);
 
@@ -554,7 +588,7 @@ main(int   argc,
     run_argc = 2;
   }
 
-  app_use_bundled_icons();
+  app_skip_desktop_themes();
 
   app = adw_application_new(WAYTATOR_APP_ID,
                              G_APPLICATION_HANDLES_COMMAND_LINE | G_APPLICATION_HANDLES_OPEN);
