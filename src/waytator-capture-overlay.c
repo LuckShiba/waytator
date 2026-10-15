@@ -16,6 +16,8 @@
 #define WAYTATOR_MAGNIFIER_GAP 24.0f
 //the closest the bar comes to the edges of the screen
 #define WAYTATOR_CAPTURE_PILL_MARGIN 8
+//how long the parts of the bar take to open and close, and the mode highlight to slide
+#define WAYTATOR_CAPTURE_PILL_TRANSITION_MS 200
 
 typedef struct _WaytatorCaptureOverlay WaytatorCaptureOverlay;
 
@@ -35,7 +37,7 @@ struct _WaytatorCaptureView {
   GtkToggleButton *screen_button;
   GtkToggleButton *magnifier_button;
   GtkRevealer *delay_choices;
-  GtkWidget *shift_hint;
+  GtkRevealer *shift_hint;
   //where the bar was dragged to, in the view's logical pixels, and where in it the pointer took hold of it
   gboolean pill_moved;
   double pill_x;
@@ -338,7 +340,7 @@ waytator_capture_overlay_set_mode(WaytatorCaptureOverlay *overlay,
 
     gtk_toggle_button_set_active(area ? view->area_button : view->screen_button, TRUE);
     gtk_widget_set_sensitive(GTK_WIDGET(view->magnifier_button), area);
-    gtk_widget_set_visible(view->shift_hint, area);
+    gtk_revealer_set_reveal_child(view->shift_hint, area);
     gtk_widget_set_cursor_from_name(GTK_WIDGET(view), area ? "crosshair" : "default");
     view->selecting = FALSE;
     gtk_widget_queue_draw(GTK_WIDGET(view));
@@ -1126,7 +1128,7 @@ waytator_capture_modes_init(WaytatorCaptureModes *self)
 {
   AdwAnimationTarget *target = adw_callback_animation_target_new(waytator_capture_modes_slide_step, self, NULL);
 
-  self->slide = adw_timed_animation_new(GTK_WIDGET(self), 0.0, 1.0, 200, target);
+  self->slide = adw_timed_animation_new(GTK_WIDGET(self), 0.0, 1.0, WAYTATOR_CAPTURE_PILL_TRANSITION_MS, target);
   adw_timed_animation_set_easing(ADW_TIMED_ANIMATION(self->slide), ADW_EASE_OUT_CUBIC);
   gtk_widget_add_css_class(GTK_WIDGET(self), "capture-modes");
 }
@@ -1208,6 +1210,7 @@ waytator_capture_overlay_append_delay(WaytatorCaptureView *view)
 
   view->delay_choices = GTK_REVEALER(gtk_revealer_new());
   gtk_revealer_set_transition_type(view->delay_choices, GTK_REVEALER_TRANSITION_TYPE_SLIDE_RIGHT);
+  gtk_revealer_set_transition_duration(view->delay_choices, WAYTATOR_CAPTURE_PILL_TRANSITION_MS);
   gtk_revealer_set_child(view->delay_choices, choices);
   gtk_box_append(GTK_BOX(view->pill), GTK_WIDGET(view->delay_choices));
 }
@@ -1333,15 +1336,21 @@ static void
 waytator_capture_overlay_append_shift_hint(WaytatorCaptureView *view)
 {
   GtkWidget *key = gtk_label_new("Shift");
+  GtkWidget *hint = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
 
-  view->shift_hint = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
-  gtk_widget_add_css_class(view->shift_hint, "capture-shortcut");
+  gtk_widget_add_css_class(hint, "capture-shortcut");
   gtk_widget_add_css_class(key, "capture-keycap");
   gtk_widget_set_valign(key, GTK_ALIGN_CENTER);
-  gtk_box_append(GTK_BOX(view->shift_hint), gtk_label_new("Hold"));
-  gtk_box_append(GTK_BOX(view->shift_hint), key);
-  gtk_box_append(GTK_BOX(view->shift_hint), gtk_label_new("to slow the cursor"));
-  gtk_box_append(GTK_BOX(view->pill), view->shift_hint);
+  gtk_box_append(GTK_BOX(hint), gtk_label_new("Hold"));
+  gtk_box_append(GTK_BOX(hint), key);
+  gtk_box_append(GTK_BOX(hint), gtk_label_new("to slow the cursor"));
+
+  //only Area has a use for it, and the bar eases to its new width rather than jumping when it goes
+  view->shift_hint = GTK_REVEALER(gtk_revealer_new());
+  gtk_revealer_set_transition_type(view->shift_hint, GTK_REVEALER_TRANSITION_TYPE_SLIDE_LEFT);
+  gtk_revealer_set_transition_duration(view->shift_hint, WAYTATOR_CAPTURE_PILL_TRANSITION_MS);
+  gtk_revealer_set_child(view->shift_hint, hint);
+  gtk_box_append(GTK_BOX(view->pill), GTK_WIDGET(view->shift_hint));
 }
 
 static void
