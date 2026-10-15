@@ -1,0 +1,19 @@
+name: Stable branch
+
+# keeps github:faetalize/waytator/stable on the latest release
+on:
+  release:
+    types: [released]
+
+permissions:
+  contents: write
+
+jobs:
+  move:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      # without --force, so a release that isn't ahead of stable fails instead of rewriting it
+      - run: git push origin "$(git rev-parse "$GITHUB_REF_NAME^{commit}"):refs/heads/stable"

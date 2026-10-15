@@ -1,0 +1,23 @@
+name: Nix
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [ubuntu-latest, ubuntu-24.04-arm]
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: cachix/install-nix-action@v31
+      - run: nix flake check -L
+      - run: nix build -L
+      - name: Check wl-copy and tesseract ship with the app
+        run: |
+          nix path-info -r ./result | grep -q -- '-wl-clipboard-'
+          nix path-info -r ./result | grep -q -- '-tesseract-'
