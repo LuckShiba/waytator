@@ -20,7 +20,8 @@ WaytatorPointerBrake *waytator_pointer_brake_new(GtkWidget                *widge
                                                  WaytatorPointerBrakeMoved moved,
                                                  WaytatorPointerBrakeLost  lost,
                                                  gpointer                  user_data);
-//x and y are where the widget's own cursor ended up, the compositor is asked to put the real one there
+//x and y are where the widget's own cursor ended up, the compositor is asked to put the real one there. the
+//brake goes on its own once the compositor has that, and calls back no more from here on
 void waytator_pointer_brake_release(WaytatorPointerBrake *brake,
                                     double                x,
                                     double                y);

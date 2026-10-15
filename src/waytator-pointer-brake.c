@@ -7,6 +7,9 @@
 #include "pointer-constraints-unstable-v1-client-protocol.h"
 #include "relative-pointer-unstable-v1-client-protocol.h"
 
+//how long a released brake waits for its hint to be taken in before it lets go of the pointer anyway
+#define WAYTATOR_POINTER_BRAKE_HINT_TIMEOUT_MS 250
+
 typedef struct {
   struct zwp_pointer_constraints_v1 *constraints;
   struct zwp_relative_pointer_manager_v1 *relative_pointers;
@@ -20,6 +23,10 @@ struct _WaytatorPointerBrake {
   double origin_x;
   double origin_y;
   gboolean locked;
+  //released by the widget, the lock only stays until the compositor has the hint
+  gboolean released;
+  struct wl_callback *hint_applied;
+  guint hint_timeout;
   WaytatorPointerBrakeMoved moved;
   WaytatorPointerBrakeLost lost;
   gpointer user_data;
@@ -93,6 +100,47 @@ waytator_pointer_brake_get_globals(GdkDisplay *display)
   return &globals;
 }
 
+//a released brake still waiting on its hint, a surface can only have one lock at a time
+static WaytatorPointerBrake *waytator_pointer_brake_pending;
+
+static void
+waytator_pointer_brake_free(WaytatorPointerBrake *brake)
+{
+  if (waytator_pointer_brake_pending == brake)
+    waytator_pointer_brake_pending = NULL;
+  g_clear_handle_id(&brake->hint_timeout, g_source_remove);
+  g_clear_pointer(&brake->hint_applied, wl_callback_destroy);
+  g_clear_pointer(&brake->relative_pointer, zwp_relative_pointer_v1_destroy);
+  zwp_locked_pointer_v1_destroy(brake->lock);
+  g_free(brake);
+}
+
+static void
+waytator_pointer_brake_hint_applied(void               *data,
+                                    struct wl_callback *callback,
+                                    uint32_t            time)
+{
+  (void) callback;
+  (void) time;
+
+  waytator_pointer_brake_free(data);
+}
+
+static const struct wl_callback_listener waytator_pointer_brake_hint_listener = {
+  .done = waytator_pointer_brake_hint_applied,
+};
+
+//no frame comes for a surface that is on its way out
+static gboolean
+waytator_pointer_brake_hint_timed_out(gpointer user_data)
+{
+  WaytatorPointerBrake *brake = user_data;
+
+  brake->hint_timeout = 0;
+  waytator_pointer_brake_free(brake);
+  return G_SOURCE_REMOVE;
+}
+
 static void
 waytator_pointer_brake_locked(void                        *data,
                               struct zwp_locked_pointer_v1 *lock)
@@ -113,6 +161,12 @@ waytator_pointer_brake_unlocked(void                        *data,
   (void) lock;
 
   brake->locked = FALSE;
+  //the lock is spent, there is nothing left to wait for
+  if (brake->released) {
+    waytator_pointer_brake_free(brake);
+    return;
+  }
+
   brake->lost(brake->user_data);
 }
 
@@ -176,6 +230,9 @@ waytator_pointer_brake_new(GtkWidget                *widget,
     return NULL;
 
   gtk_native_get_surface_transform(native, &surface_x, &surface_y);
+  //shift went down again before the last hint was in, the new lock holds the pointer anyway
+  if (waytator_pointer_brake_pending != NULL)
+    waytator_pointer_brake_free(waytator_pointer_brake_pending);
 
   brake = g_new0(WaytatorPointerBrake, 1);
   brake->surface = gdk_wayland_surface_get_wl_surface(gtk_native_get_surface(native));
@@ -205,15 +262,26 @@ waytator_pointer_brake_release(WaytatorPointerBrake *brake,
                                double                x,
                                double                y)
 {
-  if (brake->locked) {
-    zwp_locked_pointer_v1_set_cursor_position_hint(brake->lock,
-                                                   wl_fixed_from_double(brake->origin_x + x),
-                                                   wl_fixed_from_double(brake->origin_y + y));
-    //the hint is surface state, it only counts once committed and has to count before the lock goes
-    wl_surface_commit(brake->surface);
+  //the widget hears nothing more from it
+  brake->released = TRUE;
+  g_clear_pointer(&brake->relative_pointer, zwp_relative_pointer_v1_destroy);
+
+  if (!brake->locked) {
+    waytator_pointer_brake_free(brake);
+    return;
   }
 
-  zwp_relative_pointer_v1_destroy(brake->relative_pointer);
-  zwp_locked_pointer_v1_destroy(brake->lock);
-  g_free(brake);
+  zwp_locked_pointer_v1_set_cursor_position_hint(brake->lock,
+                                                 wl_fixed_from_double(brake->origin_x + x),
+                                                 wl_fixed_from_double(brake->origin_y + y));
+  //the hint is surface state and only counts once committed, and has to count before the lock goes. a compositor
+  //may hold the commit back until the frame before it is drawn, niri does, while it would take the lock away at
+  //once, so the lock stays until the frame callback of that same commit says the hint is in
+  brake->hint_applied = wl_surface_frame(brake->surface);
+  wl_callback_add_listener(brake->hint_applied, &waytator_pointer_brake_hint_listener, brake);
+  wl_surface_commit(brake->surface);
+  waytator_pointer_brake_pending = brake;
+  brake->hint_timeout = g_timeout_add(WAYTATOR_POINTER_BRAKE_HINT_TIMEOUT_MS,
+                                      waytator_pointer_brake_hint_timed_out,
+                                      brake);
 }
