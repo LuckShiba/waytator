@@ -1238,8 +1238,8 @@ waytator_window_zoom_gesture_begin(GtkGesture       *gesture,
     surface_y = viewport_y;
   }
 
-  self->pointer_widget_x = viewport_x;
-  self->pointer_widget_y = viewport_y;
+  self->pointer_viewport_x = viewport_x;
+  self->pointer_viewport_y = viewport_y;
 
   {
     double display_x;
@@ -1288,6 +1288,24 @@ waytator_window_zoom_gesture_update(GtkGesture *gesture,
 }
 
 static void
+waytator_window_remember_pointer(WaytatorWindow *self,
+                                 double          x,
+                                 double          y)
+{
+  const graphene_point_t point = GRAPHENE_POINT_INIT(x, y);
+  graphene_point_t viewport_point;
+
+  if (!gtk_widget_compute_point(GTK_WIDGET(self->drawing_area),
+                                GTK_WIDGET(self->canvas_scroller),
+                                &point,
+                                &viewport_point))
+    return;
+
+  self->pointer_viewport_x = viewport_point.x;
+  self->pointer_viewport_y = viewport_point.y;
+}
+
+static void
 waytator_window_pointer_enter(GtkEventControllerMotion *controller,
                               double                    x,
                               double                    y,
@@ -1298,8 +1316,7 @@ waytator_window_pointer_enter(GtkEventControllerMotion *controller,
   (void) controller;
 
   self->pointer_in = TRUE;
-  self->pointer_widget_x = x;
-  self->pointer_widget_y = y;
+  waytator_window_remember_pointer(self, x, y);
   gtk_widget_queue_draw(GTK_WIDGET(self->drawing_area));
 }
 
@@ -1325,8 +1342,7 @@ waytator_window_pointer_motion(GtkEventControllerMotion *controller,
 
   (void) controller;
 
-  self->pointer_widget_x = x;
-  self->pointer_widget_y = y;
+  waytator_window_remember_pointer(self, x, y);
   if (!waytator_window_get_image_point(self, x, y, TRUE, &self->pointer_x, &self->pointer_y))
     return;
 

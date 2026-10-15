@@ -57,10 +57,14 @@ waytator_window_update_zoom_label(WaytatorWindow *self)
                          ? g_strdup_printf("%.0f%%", waytator_window_get_effective_zoom(self) * 100.0)
                          : g_strdup("--");
 
-  //both Fit buttons, the one in the pill and the one in its drawer, show whether fit is on
-  for (guint i = 0; i < 2; i++) {
-    GtkWidget *fit = i == 0 ? GTK_WIDGET(self->fit_zoom_button) : self->zoom_drawer_fit_button;
+  //every Fit button shows whether fit is on: the pill's, its drawer's and the main menu's
+  for (guint i = 0; i < 3; i++) {
+    GtkWidget *fit = i == 0 ? GTK_WIDGET(self->fit_zoom_button)
+                   : i == 1 ? self->zoom_drawer_fit_button
+                   : self->zoom_menu_fit_button;
 
+    if (fit == NULL)
+      continue;
     if (fitted)
       gtk_widget_add_css_class(fit, "selected-tool");
     else
@@ -72,30 +76,6 @@ waytator_window_update_zoom_label(WaytatorWindow *self)
   if (self->zoom_menu_label != NULL)
     gtk_label_set_text(self->zoom_menu_label, label);
   gtk_label_set_text(self->zoom_osd, label);
-}
-
-static gboolean
-waytator_window_fit_zoom_idle(gpointer user_data)
-{
-  WaytatorWindow *self = WAYTATOR_WINDOW(user_data);
-  double viewport_width;
-  double viewport_height;
-
-  if (self->texture == NULL)
-    goto done;
-
-  waytator_window_get_viewport_size(self, &viewport_width, &viewport_height);
-  if (viewport_width <= 0 || viewport_height <= 0)
-    return G_SOURCE_CONTINUE;
-
-  self->fit_mode = TRUE;
-  self->zoom = waytator_window_get_fit_zoom(self);
-  waytator_window_apply_zoom_mode(self);
-  waytator_window_update_zoom_label(self);
-
-done:
-  g_object_unref(self);
-  return G_SOURCE_REMOVE;
 }
 
 //an image opens at its own size, or smaller when the window cannot hold it. that zoom settles once the window
@@ -135,14 +115,11 @@ waytator_window_toggle_fit(WaytatorWindow *self)
   if (self->texture == NULL)
     return;
 
-  if (!self->fit_mode) {
-    self->opening_zoom = FALSE;
-    waytator_window_queue_fit_zoom(self);
-    return;
-  }
-
-  self->zoom = waytator_window_get_fit_zoom(self);
-  self->fit_mode = FALSE;
+  //right away rather than later, a second press straight after has to see the first one done
+  if (self->fit_mode)
+    self->zoom = waytator_window_get_fit_zoom(self);
+  self->fit_mode = !self->fit_mode;
+  self->opening_zoom = FALSE;
   waytator_window_apply_zoom_mode(self);
   waytator_window_update_zoom_label(self);
 }
@@ -277,18 +254,11 @@ waytator_window_get_pointer_viewport_position(WaytatorWindow *self,
                                               double         *x,
                                               double         *y)
 {
-  const graphene_point_t point = GRAPHENE_POINT_INIT(self->pointer_widget_x, self->pointer_widget_y);
-  graphene_point_t viewport_point;
-
-  if (!self->pointer_in
-      || !gtk_widget_compute_point(GTK_WIDGET(self->drawing_area),
-                                   GTK_WIDGET(self->canvas_scroller),
-                                   &point,
-                                   &viewport_point))
+  if (!self->pointer_in)
     return FALSE;
 
-  *x = viewport_point.x;
-  *y = viewport_point.y;
+  *x = self->pointer_viewport_x;
+  *y = self->pointer_viewport_y;
   return TRUE;
 }
 
@@ -451,12 +421,6 @@ waytator_window_set_zoom_at(WaytatorWindow *self,
   waytator_window_update_zoom_label(self);
   waytator_window_scroll_image_point_to(self, rel_x, rel_y, viewport_x, viewport_y);
   waytator_window_flash_zoom_readout(self);
-}
-
-void
-waytator_window_queue_fit_zoom(WaytatorWindow *self)
-{
-  g_idle_add(waytator_window_fit_zoom_idle, g_object_ref(self));
 }
 
 void

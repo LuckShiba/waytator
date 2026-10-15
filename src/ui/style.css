@@ -628,6 +628,10 @@ popover .zoom-row button:hover {
   background: alpha(currentColor, 0.08);
 }
 
+popover .zoom-row button.selected-tool {
+  background: alpha(currentColor, 0.14);
+}
+
 /* the zoom level over the image while zooming, when zoom has folded into the main menu */
 .zoom-osd {
   padding: 10px 18px;

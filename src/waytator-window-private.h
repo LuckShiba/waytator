@@ -78,6 +78,7 @@ struct _WaytatorWindow {
   GtkToggleButton *zoom_drawer_button;
   GtkWidget *zoom_drawer_fit_button;
   GtkLabel *zoom_menu_label;
+  GtkWidget *zoom_menu_fit_button;
   GtkWidget *zoom_menu_row;
   GtkLabel *zoom_osd;
   GMenu *app_menu;
@@ -222,8 +223,9 @@ struct _WaytatorWindow {
 
   double pointer_x;
   double pointer_y;
-  double pointer_widget_x;
-  double pointer_widget_y;
+  //where the pointer is over the viewport. not over the image, which moves under it as it zooms and scrolls
+  double pointer_viewport_x;
+  double pointer_viewport_y;
   gboolean pointer_in;
   WaytatorWindowBackgroundMode window_background_mode;
   WaytatorChromeFolds folds;
@@ -355,7 +357,6 @@ void waytator_window_set_zoom_at(WaytatorWindow *self,
 void waytator_window_update_size_controls(WaytatorWindow *self);
 void waytator_window_save_preferences(WaytatorWindow *self);
 void waytator_window_update_tool_ui(WaytatorWindow *self);
-void waytator_window_queue_fit_zoom(WaytatorWindow *self);
 void waytator_window_sync_state(WaytatorWindow *self);
 void waytator_window_install_history_actions(GtkWidgetClass *widget_class);
 void waytator_window_setup_tool_signals(WaytatorWindow *self);

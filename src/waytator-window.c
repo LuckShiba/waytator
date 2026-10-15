@@ -397,6 +397,51 @@ waytator_window_accelerators_equal(const char *first,
       && first_modifiers == second_modifiers;
 }
 
+//the keys bound in main.c, which nothing in the preferences can take over
+static const struct {
+  const char *action;
+  const char *title;
+} waytator_fixed_shortcuts[] = {
+  { "win.open", "Open image" },
+  { "win.preferences", "Preferences" },
+  { "win.undo", "Undo" },
+  { "win.redo", "Redo" },
+  { "win.zoom-in", "Zoom in" },
+  { "win.zoom-out", "Zoom out" },
+  { "win.zoom-fit", "Fit" },
+  { "win.zoom-actual-size", "Reset zoom to 100%" },
+  { "win.rotate-counter-clockwise", "Rotate counter clockwise" },
+  { "win.flip-horizontal", "Flip horizontal" },
+  { "win.flip-vertical", "Flip vertical" },
+  { "app.quit", "Quit" },
+};
+
+//what a key bound in main.c does, or NULL. those come first, a shortcut on the same key never fires
+static const char *
+waytator_window_fixed_shortcut_title(WaytatorWindow *self,
+                                     const char     *accelerator)
+{
+  GtkApplication *app = gtk_window_get_application(GTK_WINDOW(self));
+  g_autofree char *name = NULL;
+  g_auto(GStrv) actions = NULL;
+  guint keyval;
+  GdkModifierType modifiers;
+
+  if (app == NULL || !waytator_window_parse_accelerator(accelerator, &keyval, &modifiers))
+    return NULL;
+
+  name = gtk_accelerator_name(keyval, modifiers);
+  actions = gtk_application_get_actions_for_accel(app, name);
+  for (guint i = 0; actions != NULL && actions[i] != NULL; i++) {
+    for (guint j = 0; j < G_N_ELEMENTS(waytator_fixed_shortcuts); j++) {
+      if (g_strcmp0(actions[i], waytator_fixed_shortcuts[j].action) == 0)
+        return waytator_fixed_shortcuts[j].title;
+    }
+  }
+
+  return NULL;
+}
+
 //the earlier shortcut holding the same key, or -1
 int
 waytator_window_shortcut_conflict(WaytatorWindow  *self,
@@ -1039,14 +1084,15 @@ waytator_window_update_shortcut_conflicts(WaytatorWindow *self)
 {
   for (int i = 0; i < WAYTATOR_N_SHORTCUTS; i++) {
     const int conflict = waytator_window_shortcut_conflict(self, i, FALSE);
+    const char *fixed = waytator_window_fixed_shortcut_title(self, self->shortcut_accels[i]);
     g_autofree char *subtitle = NULL;
 
     if (self->shortcut_rows[i] == NULL)
       continue;
 
-    if (conflict >= 0) {
+    if (fixed != NULL || conflict >= 0) {
       subtitle = g_strdup_printf("Already used by %s, which takes priority",
-                                 waytator_shortcuts[conflict].title);
+                                 fixed != NULL ? fixed : waytator_shortcuts[conflict].title);
       gtk_widget_add_css_class(GTK_WIDGET(self->shortcut_rows[i]), "warning");
     } else {
       gtk_widget_remove_css_class(GTK_WIDGET(self->shortcut_rows[i]), "warning");
@@ -3786,7 +3832,8 @@ waytator_window_update_capture_controls(WaytatorWindow *self)
   //a key that an earlier shortcut already took would be a lie
   accelerator = waytator_window_shortcut_accel(self, shortcut);
   if (waytator_window_parse_accelerator(accelerator, &keyval, &modifiers)
-      && waytator_window_shortcut_conflict(self, shortcut, TRUE) < 0)
+      && waytator_window_shortcut_conflict(self, shortcut, TRUE) < 0
+      && waytator_window_fixed_shortcut_title(self, accelerator) == NULL)
     label = gtk_accelerator_get_label(gdk_keyval_to_upper(keyval), modifiers);
 
   //capturing always starts with an area, the overlay is where a screen can be picked instead

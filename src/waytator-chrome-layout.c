@@ -366,7 +366,8 @@ waytator_chrome_layout_main_menu(WaytatorWindow *self)
 }
 
 static GtkWidget *
-waytator_chrome_zoom_row(GtkLabel **label)
+waytator_chrome_zoom_row(GtkLabel  **label,
+                         GtkWidget **fit_button)
 {
   GtkWidget *row = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 4);
   GtkWidget *zoom_out = gtk_button_new_from_icon_name("zoom-out-symbolic");
@@ -395,6 +396,7 @@ waytator_chrome_zoom_row(GtkLabel **label)
   gtk_box_append(GTK_BOX(row), zoom_in);
   gtk_box_append(GTK_BOX(row), fit);
   *label = GTK_LABEL(value);
+  *fit_button = fit;
   return row;
 }
 
@@ -430,7 +432,7 @@ waytator_window_setup_chrome_layout(WaytatorWindow *self)
   app_popover = gtk_menu_button_get_popover(self->app_menu_button);
   gtk_popover_set_has_arrow(app_popover, FALSE);
   gtk_popover_set_position(app_popover, GTK_POS_BOTTOM);
-  self->zoom_menu_row = g_object_ref_sink(waytator_chrome_zoom_row(&self->zoom_menu_label));
+  self->zoom_menu_row = g_object_ref_sink(waytator_chrome_zoom_row(&self->zoom_menu_label, &self->zoom_menu_fit_button));
 
   g_signal_connect(self->chrome_watcher, "resize", G_CALLBACK(waytator_chrome_watcher_resized), self);
   g_signal_connect(self->zoom_drawer_button, "toggled", G_CALLBACK(waytator_chrome_zoom_drawer_toggled), self);
