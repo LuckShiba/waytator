@@ -4,7 +4,7 @@
 
 `waytator` is a screenshot annotator and lightweight image editor
 
-`niri` user? Check below on how to integrate niri screenshots with this tool
+Using niri or GNOME? See [Desktop-specific notes](#desktop-specific-notes).
 
 <p  align="center">
 <img width="600" alt="Screenshot from 2026-04-19 03-04-52" src="https://github.com/user-attachments/assets/4bcc1c58-5834-4f35-877b-5f94a914d6ce" />
@@ -121,13 +121,6 @@ Add `--name "Screenshot.png"` to name a piped image.
 
 Tools have single-key shortcuts, shown on their buttons, and `[` and `]` change the size. They can all be changed in Preferences → Shortcuts.
 
-To keep niri's own screenshot UI and annotate what it takes, bind your screenshot key to `scripts/screenshot-to-waytator.sh`. Screenshots you save or copy there then open in waytator:
-
-```kdl
-// in your config.kdl, in the binds section
-Print { spawn <path-to-screenshot-to-waytator.sh>; }
-```
-
 ### Taking screenshots
 
 waytator can take the screenshot itself and open it for annotating straight away:
@@ -149,7 +142,17 @@ waytator --screenshot --delay 3       # wait 3 seconds before capturing
 waytator --screenshot --screen DP-1   # capture that screen straight away
 ```
 
-Bind them to keys to capture and annotate in one step. For example with niri:
+Bind these to keys in your compositor to capture and annotate in one step. On some desktops, the first screenshot asks for permission.
+
+Run `waytator --help` for every option, including overriding shortcuts for one launch.
+
+## Desktop-specific notes
+
+Screenshots are tested on niri and GNOME.
+
+### niri
+
+Keybinds that capture and annotate in one step:
 
 ```kdl
 // in your config.kdl, in the binds section
@@ -158,17 +161,14 @@ Shift+Print { spawn "waytator" "--screenshot" "screen"; }
 Ctrl+Print { spawn "waytator" "--screenshot" "--notify"; }
 ```
 
-Things to know:
+To keep niri's own screenshot UI instead, bind your screenshot key to `scripts/screenshot-to-waytator.sh`. Screenshots you save or copy there then open in waytator:
 
-- Screenshots are tested on niri and GNOME.
-- On GNOME, waytator opens GNOME's own screenshot tool and then edits the result. `--screen` doesn't work there.
-- On some desktops, the first screenshot asks for permission.
+```kdl
+// in your config.kdl, in the binds section
+Print { spawn <path-to-screenshot-to-waytator.sh>; }
+```
 
-### More
-
-Run `waytator --help` for every option, including overriding shortcuts for one launch.
-
-On niri, floating waytator windows work best:
+Floating waytator windows work best:
 
 ```kdl
 // in your config.kdl
@@ -177,6 +177,10 @@ window-rule {
     open-floating true
 }
 ```
+
+### GNOME
+
+Taking a screenshot opens GNOME's own screenshot tool, and waytator edits the result. `--screen` doesn't work there.
 
 ## License
 
