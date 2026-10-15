@@ -507,9 +507,19 @@
   background: alpha(white, 0.06);
 }
 
+/* the highlight of the picked one is drawn by the switch itself, so it can slide across */
 .capture-pill .capture-modes togglebutton.flat {
   min-height: 28px;
   border-radius: 9px;
+  color: alpha(white, 0.65);
+  transition: color 200ms ease-out;
+}
+
+.capture-pill .capture-modes togglebutton.flat:checked,
+.capture-pill .capture-modes togglebutton.flat:checked:hover {
+  color: white;
+  background: transparent;
+  background-color: transparent;
 }
 
 .capture-pill .capture-shortcut {

@@ -1004,16 +1004,143 @@ waytator_capture_overlay_init_pill_button(GtkWidget  *button,
     gtk_widget_set_tooltip_text(button, tooltip);
 }
 
+#define WAYTATOR_TYPE_CAPTURE_MODES (waytator_capture_modes_get_type())
+
+G_DECLARE_FINAL_TYPE(WaytatorCaptureModes, waytator_capture_modes, WAYTATOR, CAPTURE_MODES, GtkWidget)
+
+//Area and Screen side by side, with one highlight that slides over to whichever is picked
+struct _WaytatorCaptureModes {
+  GtkWidget parent_instance;
+
+  GtkWidget *selected;
+  //where the highlight set off from
+  graphene_rect_t from;
+  AdwAnimation *slide;
+};
+
+G_DEFINE_FINAL_TYPE(WaytatorCaptureModes, waytator_capture_modes, GTK_TYPE_WIDGET)
+
+static gboolean
+waytator_capture_modes_get_highlight(WaytatorCaptureModes *self,
+                                     graphene_rect_t      *highlight)
+{
+  graphene_rect_t to;
+
+  if (self->selected == NULL || !gtk_widget_compute_bounds(self->selected, GTK_WIDGET(self), &to))
+    return FALSE;
+
+  if (adw_animation_get_state(self->slide) != ADW_ANIMATION_PLAYING) {
+    *highlight = to;
+    return TRUE;
+  }
+
+  graphene_rect_interpolate(&self->from, &to, adw_animation_get_value(self->slide), highlight);
+  return TRUE;
+}
+
+static void
+waytator_capture_modes_snapshot(GtkWidget   *widget,
+                                GtkSnapshot *snapshot)
+{
+  WaytatorCaptureModes *self = WAYTATOR_CAPTURE_MODES(widget);
+  const GdkRGBA color = { 1.0, 1.0, 1.0, 0.16 };
+  graphene_rect_t highlight;
+  GskRoundedRect shape;
+
+  if (waytator_capture_modes_get_highlight(self, &highlight)) {
+    gsk_rounded_rect_init_from_rect(&shape, &highlight, 9.0f);
+    gtk_snapshot_push_rounded_clip(snapshot, &shape);
+    gtk_snapshot_append_color(snapshot, &color, &highlight);
+    gtk_snapshot_pop(snapshot);
+  }
+
+  GTK_WIDGET_CLASS(waytator_capture_modes_parent_class)->snapshot(widget, snapshot);
+}
+
+static void
+waytator_capture_modes_slide_step(double   value,
+                                  gpointer user_data)
+{
+  (void) value;
+
+  gtk_widget_queue_draw(GTK_WIDGET(user_data));
+}
+
+static void
+waytator_capture_modes_button_toggled(GtkToggleButton      *button,
+                                      WaytatorCaptureModes *self)
+{
+  graphene_rect_t from;
+
+  if (!gtk_toggle_button_get_active(button) || GTK_WIDGET(button) == self->selected)
+    return;
+
+  //the first pick, or one made before the bar is on screen, has nowhere to slide from
+  if (!gtk_widget_get_mapped(GTK_WIDGET(self)) || !waytator_capture_modes_get_highlight(self, &from)) {
+    self->selected = GTK_WIDGET(button);
+    adw_animation_skip(self->slide);
+    gtk_widget_queue_draw(GTK_WIDGET(self));
+    return;
+  }
+
+  //from wherever the highlight is, which may be halfway through the last slide
+  self->from = from;
+  self->selected = GTK_WIDGET(button);
+  adw_animation_play(self->slide);
+}
+
+static void
+waytator_capture_modes_add(WaytatorCaptureModes *self,
+                           GtkWidget            *button)
+{
+  gtk_widget_set_parent(button, GTK_WIDGET(self));
+  g_signal_connect(button, "toggled", G_CALLBACK(waytator_capture_modes_button_toggled), self);
+}
+
+static void
+waytator_capture_modes_dispose(GObject *object)
+{
+  WaytatorCaptureModes *self = WAYTATOR_CAPTURE_MODES(object);
+  GtkWidget *child;
+
+  g_clear_object(&self->slide);
+  while ((child = gtk_widget_get_first_child(GTK_WIDGET(self))) != NULL)
+    gtk_widget_unparent(child);
+
+  G_OBJECT_CLASS(waytator_capture_modes_parent_class)->dispose(object);
+}
+
+static void
+waytator_capture_modes_class_init(WaytatorCaptureModesClass *klass)
+{
+  GtkWidgetClass *widget_class = GTK_WIDGET_CLASS(klass);
+  GObjectClass *object_class = G_OBJECT_CLASS(klass);
+
+  object_class->dispose = waytator_capture_modes_dispose;
+  widget_class->snapshot = waytator_capture_modes_snapshot;
+  gtk_widget_class_set_layout_manager_type(widget_class, GTK_TYPE_BOX_LAYOUT);
+}
+
+static void
+waytator_capture_modes_init(WaytatorCaptureModes *self)
+{
+  AdwAnimationTarget *target = adw_callback_animation_target_new(waytator_capture_modes_slide_step, self, NULL);
+
+  self->slide = adw_timed_animation_new(GTK_WIDGET(self), 0.0, 1.0, 200, target);
+  adw_timed_animation_set_easing(ADW_TIMED_ANIMATION(self->slide), ADW_EASE_OUT_CUBIC);
+  gtk_widget_add_css_class(GTK_WIDGET(self), "capture-modes");
+}
+
 static GtkToggleButton *
-waytator_capture_overlay_new_mode_button(WaytatorCaptureView *view,
-                                         GtkWidget           *modes,
-                                         const char          *label)
+waytator_capture_overlay_new_mode_button(WaytatorCaptureView  *view,
+                                         WaytatorCaptureModes *modes,
+                                         const char           *label)
 {
   GtkWidget *button = gtk_toggle_button_new_with_label(label);
 
   waytator_capture_overlay_init_pill_button(button, NULL);
   g_signal_connect(button, "toggled", G_CALLBACK(waytator_capture_overlay_mode_toggled), view);
-  gtk_box_append(GTK_BOX(modes), button);
+  waytator_capture_modes_add(modes, button);
   return GTK_TOGGLE_BUTTON(button);
 }
 
@@ -1209,11 +1336,11 @@ waytator_capture_overlay_append_shift_hint(WaytatorCaptureView *view)
 
   view->shift_hint = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
   gtk_widget_add_css_class(view->shift_hint, "capture-shortcut");
-  gtk_widget_set_tooltip_text(view->shift_hint, "Hold Shift to move the pointer slower");
   gtk_widget_add_css_class(key, "capture-keycap");
   gtk_widget_set_valign(key, GTK_ALIGN_CENTER);
+  gtk_box_append(GTK_BOX(view->shift_hint), gtk_label_new("Hold"));
   gtk_box_append(GTK_BOX(view->shift_hint), key);
-  gtk_box_append(GTK_BOX(view->shift_hint), gtk_label_new("slow"));
+  gtk_box_append(GTK_BOX(view->shift_hint), gtk_label_new("to slow the cursor"));
   gtk_box_append(GTK_BOX(view->pill), view->shift_hint);
 }
 
@@ -1229,7 +1356,7 @@ waytator_capture_overlay_cancel_clicked(GtkButton           *button,
 static void
 waytator_capture_overlay_build_pill(WaytatorCaptureView *view)
 {
-  GtkWidget *modes = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
+  WaytatorCaptureModes *modes = g_object_new(WAYTATOR_TYPE_CAPTURE_MODES, NULL);
   GtkWidget *cancel = gtk_button_new_from_icon_name("window-close-symbolic");
   GtkWidget *button;
 
@@ -1238,11 +1365,10 @@ waytator_capture_overlay_build_pill(WaytatorCaptureView *view)
 
   waytator_capture_overlay_append_handle(view);
 
-  gtk_widget_add_css_class(modes, "capture-modes");
   view->area_button = waytator_capture_overlay_new_mode_button(view, modes, "Area");
   view->screen_button = waytator_capture_overlay_new_mode_button(view, modes, "Screen");
   gtk_toggle_button_set_group(view->screen_button, view->area_button);
-  gtk_box_append(GTK_BOX(view->pill), modes);
+  gtk_box_append(GTK_BOX(view->pill), GTK_WIDGET(modes));
   waytator_capture_overlay_append_separator(view);
 
   button = waytator_capture_overlay_append_toggle(view,
