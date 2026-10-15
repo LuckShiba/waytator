@@ -556,6 +556,10 @@ main(int   argc,
   gtk_application_set_accels_for_action(GTK_APPLICATION(app), "win.zoom-in", (const char *[]) { "<Primary>plus", "<Primary>equal", "<Primary>KP_Add", NULL });
   gtk_application_set_accels_for_action(GTK_APPLICATION(app), "win.zoom-out", (const char *[]) { "<Primary>minus", "<Primary>KP_Subtract", NULL });
   gtk_application_set_accels_for_action(GTK_APPLICATION(app), "win.zoom-fit", (const char *[]) { "<Primary>0", NULL });
+  gtk_application_set_accels_for_action(GTK_APPLICATION(app), "win.zoom-actual-size", (const char *[]) { "<Primary>1", "<Primary>KP_1", NULL });
+  gtk_application_set_accels_for_action(GTK_APPLICATION(app), "win.rotate-counter-clockwise", (const char *[]) { "<Primary><Shift>r", NULL });
+  gtk_application_set_accels_for_action(GTK_APPLICATION(app), "win.flip-horizontal", (const char *[]) { "<Primary><Shift>h", NULL });
+  gtk_application_set_accels_for_action(GTK_APPLICATION(app), "win.flip-vertical", (const char *[]) { "<Primary><Shift>v", NULL });
   gtk_application_set_accels_for_action(GTK_APPLICATION(app), "app.quit", (const char *[]) { "<Primary>q", NULL });
 
   g_signal_connect(app, "startup", G_CALLBACK(app_startup), NULL);
