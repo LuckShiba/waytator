@@ -1,8 +1,8 @@
 #include "waytator-window-private.h"
 
 //the floating controls fit any window from a phone up: they measure what they need and give up room in a
-//fixed order, the least needed while editing first. the tools are the only thing that moves, between a dock
-//at the bottom with their options right above, and a rail on the left when the window is short
+//fixed order, the least needed while editing first. the tools sit in a dock at the bottom with their options
+//right above
 
 #define WAYTATOR_CHROME_MARGIN 16
 #define WAYTATOR_CHROME_MARGIN_TIGHT 8
@@ -12,8 +12,6 @@
 #define WAYTATOR_CHROME_TOOL_GAP_TIGHT 2
 //between the controls and the fitted image
 #define WAYTATOR_CHROME_CLEARANCE 8
-//below this the dock and its options would take more than 30% of the height, so the tools go to the side
-#define WAYTATOR_RAIL_BELOW_HEIGHT 630
 //a title narrower than this says too little to be worth the space
 #define WAYTATOR_TITLE_MIN_WIDTH 180
 //below this, Open gives way if that makes room for the title
@@ -44,27 +42,6 @@ waytator_chrome_height(GtkWidget *widget)
 }
 
 static void
-waytator_chrome_place_tools(WaytatorWindow *self,
-                            gboolean        rail)
-{
-  GtkWidget *tools = self->tool_group;
-  GtkWidget *target = rail ? self->tool_rail : self->dock_box;
-
-  if (gtk_widget_get_parent(tools) != target) {
-    g_object_ref(tools);
-    gtk_box_remove(GTK_BOX(gtk_widget_get_parent(tools)), tools);
-    gtk_box_append(GTK_BOX(target), tools);
-    g_object_unref(tools);
-  }
-
-  gtk_orientable_set_orientation(GTK_ORIENTABLE(tools), rail ? GTK_ORIENTATION_VERTICAL : GTK_ORIENTATION_HORIZONTAL);
-  gtk_widget_set_halign(tools, rail ? GTK_ALIGN_START : GTK_ALIGN_CENTER);
-  //from the rail the shapes open to the side, from the dock upwards
-  gtk_popover_set_position(self->shapes_popover, rail ? GTK_POS_RIGHT : GTK_POS_TOP);
-  gtk_widget_set_visible(self->tool_rail, rail && self->texture != NULL);
-}
-
-static void
 waytator_chrome_apply(WaytatorWindow            *self,
                       const WaytatorChromeFolds *folds)
 {
@@ -74,7 +51,6 @@ waytator_chrome_apply(WaytatorWindow            *self,
   const gboolean full_zoom = folds->zoom == WAYTATOR_ZOOM_FULL;
 
   self->folds = *folds;
-  waytator_chrome_place_tools(self, folds->rail);
 
   gtk_widget_set_visible(self->open_actions, has_image && folds->capture);
   gtk_widget_set_visible(self->open_label_button, folds->open == WAYTATOR_OPEN_LABEL);
@@ -96,35 +72,12 @@ waytator_chrome_apply(WaytatorWindow            *self,
   gtk_widget_set_margin_start(self->bottom_bar, margin);
   gtk_widget_set_margin_end(self->bottom_bar, margin);
   gtk_widget_set_margin_bottom(self->bottom_bar, margin);
-  gtk_widget_set_margin_start(self->tool_rail, margin);
   gtk_widget_set_margin_start(self->ocr_panel, margin);
   gtk_widget_set_margin_end(self->ocr_panel, margin);
   gtk_widget_set_margin_bottom(self->ocr_panel, margin);
   gtk_box_set_spacing(GTK_BOX(self->start_actions), gap);
   gtk_box_set_spacing(GTK_BOX(self->end_actions), gap);
   gtk_box_set_spacing(GTK_BOX(self->tool_group), folds->tight ? WAYTATOR_CHROME_TOOL_GAP_TIGHT : WAYTATOR_CHROME_TOOL_GAP);
-}
-
-//the widest options any tool has, measured once: color, fill, sizes and the size readout together
-static int
-waytator_chrome_options_max_width(WaytatorWindow *self)
-{
-  GtkWidget *shown[] = { GTK_WIDGET(self->color_button), GTK_WIDGET(self->fill_color_button), self->size_presets, self->size_readout };
-  GtkWidget *hidden[] = { GTK_WIDGET(self->text_size_spin), GTK_WIDGET(self->blur_type_dropdown), self->crop_actions };
-  const gboolean was_visible = gtk_widget_get_visible(self->settings_group);
-
-  if (self->options_max_width > 0)
-    return self->options_max_width;
-
-  gtk_widget_set_visible(self->settings_group, TRUE);
-  for (guint i = 0; i < G_N_ELEMENTS(shown); i++)
-    gtk_widget_set_visible(shown[i], TRUE);
-  for (guint i = 0; i < G_N_ELEMENTS(hidden); i++)
-    gtk_widget_set_visible(hidden[i], FALSE);
-  self->options_max_width = waytator_chrome_width(self->settings_group);
-  gtk_widget_set_visible(self->settings_group, was_visible);
-  waytator_window_update_tool_ui(self);
-  return self->options_max_width;
 }
 
 static int
@@ -157,14 +110,12 @@ waytator_chrome_update_insets(WaytatorWindow *self)
   const int margin = self->folds.tight ? WAYTATOR_CHROME_MARGIN_TIGHT : WAYTATOR_CHROME_MARGIN;
   const int top = margin + waytator_chrome_height(self->top_bar) + WAYTATOR_CHROME_CLEARANCE;
   const int bottom = margin + waytator_chrome_height(self->bottom_bar) + WAYTATOR_CHROME_CLEARANCE;
-  const int start = self->folds.rail ? margin + waytator_chrome_width(self->tool_rail) + WAYTATOR_CHROME_CLEARANCE : 0;
 
-  if (top == self->inset_top && bottom == self->inset_bottom && start == self->inset_start)
+  if (top == self->inset_top && bottom == self->inset_bottom)
     return;
 
   self->inset_top = top;
   self->inset_bottom = bottom;
-  self->inset_start = start;
   if (self->texture != NULL && self->fit_mode) {
     waytator_window_apply_zoom_mode(self);
     waytator_window_update_zoom_label(self);
@@ -176,7 +127,6 @@ waytator_window_update_chrome_layout(WaytatorWindow *self)
 {
   const int width = self->chrome_width;
   WaytatorChromeFolds folds = {
-    .rail = self->chrome_height > 0 && self->chrome_height < WAYTATOR_RAIL_BELOW_HEIGHT,
     .open = WAYTATOR_OPEN_LABEL,
     .capture = TRUE,
     .title = TRUE,
@@ -184,7 +134,7 @@ waytator_window_update_chrome_layout(WaytatorWindow *self)
     .save = TRUE,
     .keep_open = TRUE,
   };
-  int middle;
+  int dock;
   int zoom_full;
   int zoom_chip;
   int room;
@@ -199,16 +149,15 @@ waytator_window_update_chrome_layout(WaytatorWindow *self)
 
   waytator_chrome_apply(self, &folds);
 
-  //zoom keeps its full controls while they fit beside the tool dock, or beside the options when the tools are
-  //in the rail
-  middle = folds.rail ? waytator_chrome_options_max_width(self) : waytator_chrome_width(self->tool_group);
+  //zoom keeps its full controls while they fit beside the tool dock
+  dock = waytator_chrome_width(self->tool_group);
   zoom_full = waytator_chrome_width(self->zoom_group);
   folds.zoom = WAYTATOR_ZOOM_CHIP;
   waytator_chrome_apply(self, &folds);
   zoom_chip = waytator_chrome_width(self->zoom_group);
-  if (middle + 2 * (zoom_full + WAYTATOR_CHROME_GAP) + 2 * WAYTATOR_CHROME_MARGIN <= width)
+  if (dock + 2 * (zoom_full + WAYTATOR_CHROME_GAP) + 2 * WAYTATOR_CHROME_MARGIN <= width)
     folds.zoom = WAYTATOR_ZOOM_FULL;
-  else if (middle + 2 * (zoom_chip + WAYTATOR_CHROME_GAP) + 2 * WAYTATOR_CHROME_MARGIN > width)
+  else if (dock + 2 * (zoom_chip + WAYTATOR_CHROME_GAP) + 2 * WAYTATOR_CHROME_MARGIN > width)
     folds.zoom = WAYTATOR_ZOOM_MENU;
   waytator_chrome_apply(self, &folds);
 
@@ -234,7 +183,7 @@ waytator_window_update_chrome_layout(WaytatorWindow *self)
   }
 
   //the dock only ever needs the tighter spacing
-  if (!folds.rail && waytator_chrome_width(self->tool_group) + 2 * WAYTATOR_CHROME_MARGIN > width) {
+  if (dock + 2 * WAYTATOR_CHROME_MARGIN > width) {
     folds.tight = TRUE;
     waytator_chrome_apply(self, &folds);
   }

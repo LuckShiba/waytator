@@ -1120,14 +1120,6 @@
             </child>
 
             <child type="overlay">
-              <object class="GtkBox" id="tool_rail">
-                <property name="halign">start</property>
-                <property name="valign">center</property>
-                <property name="margin-start">16</property>
-              </object>
-            </child>
-
-            <child type="overlay">
               <object class="GtkLabel" id="zoom_osd">
                 <property name="visible">False</property>
                 <property name="halign">center</property>

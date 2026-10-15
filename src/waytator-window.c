@@ -4456,7 +4456,6 @@ waytator_window_bind_template_children(GtkWidgetClass *widget_class)
   gtk_widget_class_bind_template_child(widget_class, WaytatorWindow, bottom_bar);
   gtk_widget_class_bind_template_child(widget_class, WaytatorWindow, dock_box);
   gtk_widget_class_bind_template_child(widget_class, WaytatorWindow, options_row);
-  gtk_widget_class_bind_template_child(widget_class, WaytatorWindow, tool_rail);
   gtk_widget_class_bind_template_child(widget_class, WaytatorWindow, chrome_watcher);
   gtk_widget_class_bind_template_child(widget_class, WaytatorWindow, open_label_button);
   gtk_widget_class_bind_template_child(widget_class, WaytatorWindow, open_icon_button);
@@ -4773,9 +4772,10 @@ waytator_window_setup_capture_button(WaytatorWindow *self)
 static void
 waytator_window_setup_popovers(WaytatorWindow *self)
 {
+  //the tools sit in the dock at the bottom
   waytator_window_setup_menu_button_popover(self->shapes_tool_button,
-                                            GTK_ARROW_DOWN,
-                                            GTK_POS_BOTTOM);
+                                            GTK_ARROW_UP,
+                                            GTK_POS_TOP);
   waytator_window_setup_menu_button_popover(self->save_button,
                                             GTK_ARROW_DOWN,
                                             GTK_POS_BOTTOM);

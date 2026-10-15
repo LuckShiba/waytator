@@ -21,7 +21,6 @@ typedef enum {
 } WaytatorZoomFold;
 
 typedef struct {
-  gboolean rail;
   WaytatorOpenFold open;
   gboolean capture;
   gboolean title;
@@ -63,7 +62,6 @@ struct _WaytatorWindow {
   GtkWidget *bottom_bar;
   GtkWidget *dock_box;
   GtkWidget *options_row;
-  GtkWidget *tool_rail;
   GtkWidget *chrome_watcher;
   GtkWidget *open_label_button;
   GtkWidget *open_icon_button;
@@ -227,12 +225,10 @@ struct _WaytatorWindow {
   int chrome_height;
   guint chrome_layout_id;
   guint zoom_osd_timeout_id;
-  //the widest tool options, so switching tools never rearranges the window
-  int options_max_width;
   //room the floating controls take on each side, kept clear when the image is fitted
   int inset_top;
   int inset_bottom;
-  int inset_start;
+
   gboolean updating_ui;
   gboolean size_drawer_open;
   gboolean size_editing;

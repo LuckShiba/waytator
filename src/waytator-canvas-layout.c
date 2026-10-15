@@ -40,7 +40,6 @@ waytator_window_get_fit_zoom(WaytatorWindow *self)
 
   waytator_window_get_viewport_size(self, &viewport_width, &viewport_height);
   //the floating controls keep their part of the window, the fitted image goes in the rest
-  viewport_width -= self->inset_start;
   viewport_height -= self->inset_top + self->inset_bottom;
   if (viewport_width <= 0 || viewport_height <= 0)
     return 1.0;
@@ -303,7 +302,6 @@ waytator_window_update_picture_size(WaytatorWindow *self)
   //centred in what the controls leave free while fitted; zoomed in, the image may go under them
   gtk_widget_set_margin_top(self->canvas_surface, self->fit_mode ? self->inset_top : 0);
   gtk_widget_set_margin_bottom(self->canvas_surface, self->fit_mode ? self->inset_bottom : 0);
-  gtk_widget_set_margin_start(self->canvas_surface, self->fit_mode ? self->inset_start : 0);
   waytator_window_update_ocr_overlay(self);
 }
 
@@ -335,7 +333,7 @@ waytator_window_set_zoom_at(WaytatorWindow *self,
   double old_scroll_y = gtk_adjustment_get_value(vadjustment);
 
   //while fitted the image sits inside margins that keep it clear of the controls
-  double old_widget_x = old_scroll_x + viewport_x - gtk_widget_get_margin_start(self->canvas_surface);
+  double old_widget_x = old_scroll_x + viewport_x;
   double old_widget_y = old_scroll_y + viewport_y - gtk_widget_get_margin_top(self->canvas_surface);
 
   double widget_width = gtk_widget_get_width(self->canvas_surface);
