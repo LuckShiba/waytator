@@ -39,6 +39,10 @@ struct _WaytatorCaptureView {
   //where the cursor is, or the one drawn in its place while braking
   double pointer_x;
   double pointer_y;
+  //where GDK last saw the pointer, and whether braking has since moved the cursor away from there
+  double seen_x;
+  double seen_y;
+  gboolean detached;
   double start_x;
   double start_y;
   double end_x;
@@ -201,6 +205,7 @@ waytator_capture_overlay_brake_moved(double   dx,
   const double x = CLAMP(view->pointer_x + dx * overlay->brake_speed, 0.0, gtk_widget_get_width(GTK_WIDGET(view)));
   const double y = CLAMP(view->pointer_y + dy * overlay->brake_speed, 0.0, gtk_widget_get_height(GTK_WIDGET(view)));
 
+  view->detached = TRUE;
   if (view->selecting) {
     waytator_capture_view_set_selection_end(view, x, y);
     return;
@@ -741,6 +746,33 @@ waytator_capture_view_snapshot(GtkWidget   *widget,
     waytator_capture_view_snapshot_cursor(self, snapshot);
 }
 
+//GDK hears nothing of the pointer while it is held, nor after it is let go until it really moves, and in the
+//meantime it repeats where it last saw it whenever the widgets under it change, which is where braking began
+static gboolean
+waytator_capture_view_is_stale(WaytatorCaptureView *self,
+                               double               x,
+                               double               y)
+{
+  return self->detached && x == self->seen_x && y == self->seen_y;
+}
+
+//FALSE when it is only GDK repeating itself
+static gboolean
+waytator_capture_view_pointer_seen(WaytatorCaptureView *self,
+                                   double               x,
+                                   double               y)
+{
+  if (waytator_capture_view_is_stale(self, x, y))
+    return FALSE;
+
+  self->detached = FALSE;
+  self->seen_x = x;
+  self->seen_y = y;
+  self->pointer_x = x;
+  self->pointer_y = y;
+  return TRUE;
+}
+
 static void
 waytator_capture_view_set_selection_end(WaytatorCaptureView *self,
                                         double               x,
@@ -765,8 +797,8 @@ waytator_capture_view_drag_begin(GtkGestureDrag      *gesture,
   if (self->overlay->mode != WAYTATOR_CAPTURE_AREA)
     return;
 
-  //the real pointer is held where braking began, the press belongs to the drawn one
-  if (self->overlay->brake_view == self) {
+  //the press comes with where braking began, it belongs to the drawn cursor
+  if (self->detached) {
     x = self->pointer_x;
     y = self->pointer_y;
   }
@@ -788,10 +820,10 @@ waytator_capture_view_drag_update(GtkGestureDrag      *gesture,
   double start_x;
   double start_y;
 
-  //while braking the selection follows the drawn cursor rather than the pointer
+  //while braking the selection follows the drawn cursor, and until the pointer moves again after that
   if (!self->selecting
-      || self->overlay->brake_view == self
-      || !gtk_gesture_drag_get_start_point(gesture, &start_x, &start_y))
+      || !gtk_gesture_drag_get_start_point(gesture, &start_x, &start_y)
+      || waytator_capture_view_is_stale(self, start_x + offset_x, start_y + offset_y))
     return;
 
   waytator_capture_view_set_selection_end(self, start_x + offset_x, start_y + offset_y);
@@ -872,8 +904,7 @@ waytator_capture_view_pointer_entered(GtkEventControllerMotion *controller,
   (void) controller;
 
   self->hovered = TRUE;
-  self->pointer_x = x;
-  self->pointer_y = y;
+  waytator_capture_view_pointer_seen(self, x, y);
   gtk_widget_queue_draw(GTK_WIDGET(self));
 }
 
@@ -885,9 +916,7 @@ waytator_capture_view_pointer_moved(GtkEventControllerMotion *controller,
 {
   (void) controller;
 
-  self->pointer_x = x;
-  self->pointer_y = y;
-  if (self->overlay->magnifier)
+  if (waytator_capture_view_pointer_seen(self, x, y) && self->overlay->magnifier)
     gtk_widget_queue_draw(GTK_WIDGET(self));
 }
 
