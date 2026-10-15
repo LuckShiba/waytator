@@ -4,7 +4,7 @@
 
 `waytator` is a screenshot annotator and lightweight image editor
 
-`niri` user? Check below on how to integrate niri screenshots with this tool
+Using niri or GNOME? See [Desktop-specific notes](#desktop-specific-notes).
 
 <p  align="center">
 <img width="600" alt="Screenshot from 2026-04-19 03-04-52" src="https://github.com/user-attachments/assets/4bcc1c58-5834-4f35-877b-5f94a914d6ce" />
@@ -107,100 +107,68 @@ If launchers fail to start `waytator` after installing from source, make sure yo
 
 ## Usage
 
-Take a screenshot and open it for editing:
+### Annotating images
+
+Open a screenshot or any other image to mark it up, then copy or save it:
 
 ```bash
-waytator --screenshot          # drag to select an area
-waytator --screenshot screen   # a whole screen
+waytator path/to/image.png          # open an image
+grim -g "$(slurp)" - | waytator     # open an image piped in
+waytator                            # open the app empty
 ```
 
-The screen freezes while you choose, and `Esc` or a right click cancels. With more than one screen, `--screenshot screen` lets you click the one you want, and `--screenshot --screen DP-1` takes that one straight away. The same captures are available inside the app, from the camera button next to Open.
+Add `--name "Screenshot.png"` to name a piped image.
 
-To get a menu or a tooltip on screen first, add `--delay 3` to wait that many seconds before the screen freezes (whole seconds, up to 300). Once the screen is frozen, Delay in the bar at the bottom waits 1, 3, 5 or 10 seconds and freezes it again. In the app, Delay under Capture, or the arrow next to the camera button, sets a delay for the captures started there.
+Tools have single-key shortcuts, shown on their buttons, and `[` and `]` change the size. They can all be changed in Preferences → Shortcuts.
 
-Add `--notify` to take the screenshot without opening the editor:
+### Taking screenshots
+
+waytator can take the screenshot itself and open it for annotating straight away:
 
 ```bash
-waytator --screenshot --notify
+waytator --screenshot               # select an area of the screen
+waytator --screenshot screen        # capture a whole screen
+waytator --screenshot --notify      # save and copy it without opening the editor
 ```
 
-The screenshot is saved to `~/Pictures/Screenshots`, copied to the clipboard, and a notification offers to open or edit it. A screenshot that opens in the editor is saved and copied the same way as soon as it is taken, and saving your edits updates that file. The folder and the clipboard copy can be changed or turned off in Preferences → Screenshots.
+While you pick what to capture, the bar on screen switches between area and screen, waits a few seconds before capturing, and turns on a magnifier for pixel-exact selections. Hold `Shift` to slow the cursor down. `Esc` or a right click cancels. The same captures are also in the app itself.
 
-Screenshots are tested on niri and GNOME. Compositors that support `wlr-screencopy` (niri, sway and other wlroots-based ones) are captured directly, and the others go through the desktop's screenshot portal, which may ask for permission the first time.
+Screenshots are saved to your Screenshots folder and copied to the clipboard. Both can be changed in Preferences.
 
-On GNOME, waytator opens GNOME's own screenshot UI instead of its overlay. GNOME saves and copies the screenshot as usual, and waytator opens it for editing, or with `--notify` offers to. Area, screen or window is picked in GNOME's UI, a delay waits before it opens, and `--screen` doesn't support GNOME.
-
-Set `WAYTATOR_CAPTURE_BACKEND` to `screencopy`, `portal` or `gnome` to choose one.
-
-Read from stdin automatically when image data is piped in:
+A few more options:
 
 ```bash
-grim -g "$(slurp)" - | waytator
+waytator --screenshot --delay 3       # wait 3 seconds before capturing
+waytator --screenshot --screen DP-1   # capture that screen straight away
 ```
 
-Or pass stdin explicitly:
+Bind these to keys in your compositor to capture and annotate in one step. On some desktops, the first screenshot asks for permission.
 
-```bash
-grim -g "$(slurp)" - | waytator --stdin
-```
+Run `waytator --help` for every option, including overriding shortcuts for one launch.
 
-Set the default display/save-as name for stdin images:
+## Desktop-specific notes
 
-```bash
-grim -g "$(slurp)" - | waytator --stdin --name "Screenshot.png"
-```
+Screenshots are tested on niri and GNOME.
 
-Open an existing image:
+### niri
 
-```bash
-waytator path/to/image.png
-```
-
-It can also be run independently:
-
-```bash
-waytator
-```
-
-Common app features are exposed as command-line options; run `waytator --help` to list them.
-
-### Writing shortcuts
-
-Options that take a shortcut accept:
-
-- a single key: `s`, `F5`, `escape`
-- modifiers (`ctrl`, `shift`, `alt`, `super`) and a key joined with `+`: `ctrl+shift+s`
-- `right-click`
-- `none` to unassign
-- GTK Accelerator-like shortcut schemes also work :p
-
-### Tool shortcuts
-
-Each tool has a key, shown in the corner of its button. `[` and `]` change the size, number keys pick a stroke color from a palette you can edit. All of them can be reassigned in Preferences → Shortcuts.
-
-### Compositor keybinds
-
-Bind a key to `waytator --screenshot` to capture and annotate in one step. For example with `niri`:
+Keybinds that capture and annotate in one step:
 
 ```kdl
 // in your config.kdl, in the binds section
 Print { spawn "waytator" "--screenshot"; }
 Shift+Print { spawn "waytator" "--screenshot" "screen"; }
-// or save, copy and notify without opening the editor
 Ctrl+Print { spawn "waytator" "--screenshot" "--notify"; }
 ```
 
-### Niri users
-
-If you would rather keep niri's own screenshot UI, bind your screenshot keybind to `./scripts/screenshot-to-waytator.sh` instead, this will automatically open screenshots into `waytator` after they are captured for editing. Saving from niri's screenshot UI opens the saved file; pressing `Ctrl+C` in the screenshot UI opens the copied image directly from the clipboard. Clipboard captures use a timestamped name by default; override it with `WAYTATOR_SCREENSHOT_NAME`.
+To keep niri's own screenshot UI instead, bind your screenshot key to `scripts/screenshot-to-waytator.sh`. Screenshots you save or copy there then open in waytator:
 
 ```kdl
 // in your config.kdl, in the binds section
 Print { spawn <path-to-screenshot-to-waytator.sh>; }
-Mod+Shift+S { spawn <path-to-screenshot-to-waytator.sh>; }
 ```
 
-I recommend adding a window rule to float `waytator` windows for better experience, for example with `niri`:
+Floating waytator windows work best:
 
 ```kdl
 // in your config.kdl
@@ -209,6 +177,10 @@ window-rule {
     open-floating true
 }
 ```
+
+### GNOME
+
+Taking a screenshot opens GNOME's own screenshot tool, and waytator edits the result. `--screen` doesn't work there.
 
 ## License
 
