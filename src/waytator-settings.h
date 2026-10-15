@@ -11,6 +11,10 @@ typedef struct {
   gboolean screenshot_copy;
   //every visible waytator window leaves the screen while a capture is taken
   gboolean capture_hide_waytator;
+  //the capture overlay shows the pixels around the pointer up close
+  gboolean capture_magnifier;
+  //how fast the pointer goes in the capture overlay while shift is held, 1 being its usual speed
+  double capture_brake_speed;
   gboolean floating_controls_blur;
   double floating_controls_opacity;
 } WaytatorSettings;
@@ -23,5 +27,7 @@ void waytator_settings_read(WaytatorSettings *settings,
 void waytator_settings_write(const WaytatorSettings *settings,
                              GKeyFile               *key_file);
 void waytator_settings_load(WaytatorSettings *settings);
+gboolean waytator_settings_save_boolean(const char *key,
+                                        gboolean    value);
 
 G_END_DECLS

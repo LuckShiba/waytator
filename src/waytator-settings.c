@@ -25,6 +25,8 @@ waytator_settings_init(WaytatorSettings *settings)
   settings->screenshot_save_dir = waytator_settings_default_save_dir();
   settings->screenshot_copy = TRUE;
   settings->capture_hide_waytator = TRUE;
+  settings->capture_magnifier = FALSE;
+  settings->capture_brake_speed = 0.5;
   settings->floating_controls_blur = TRUE;
   settings->floating_controls_opacity = 0.7;
 }
@@ -62,6 +64,22 @@ waytator_settings_read(WaytatorSettings *settings,
                                                              "capture_hide_waytator",
                                                              NULL);
 
+  if (g_key_file_has_key(key_file, WAYTATOR_SETTINGS_GROUP, "capture_magnifier", NULL))
+    settings->capture_magnifier = g_key_file_get_boolean(key_file,
+                                                         WAYTATOR_SETTINGS_GROUP,
+                                                         "capture_magnifier",
+                                                         NULL);
+
+  if (g_key_file_has_key(key_file, WAYTATOR_SETTINGS_GROUP, "capture_brake_speed", NULL)) {
+    const double speed = g_key_file_get_double(key_file,
+                                               WAYTATOR_SETTINGS_GROUP,
+                                               "capture_brake_speed",
+                                               NULL);
+
+    if (speed > 0.0 && speed <= 1.0)
+      settings->capture_brake_speed = speed;
+  }
+
   if (g_key_file_has_key(key_file, WAYTATOR_SETTINGS_GROUP, "floating_controls_blur", NULL))
     settings->floating_controls_blur = g_key_file_get_boolean(key_file,
                                                               WAYTATOR_SETTINGS_GROUP,
@@ -97,6 +115,14 @@ waytator_settings_write(const WaytatorSettings *settings,
                          settings->capture_hide_waytator);
   g_key_file_set_boolean(key_file,
                          WAYTATOR_SETTINGS_GROUP,
+                         "capture_magnifier",
+                         settings->capture_magnifier);
+  g_key_file_set_double(key_file,
+                        WAYTATOR_SETTINGS_GROUP,
+                        "capture_brake_speed",
+                        settings->capture_brake_speed);
+  g_key_file_set_boolean(key_file,
+                         WAYTATOR_SETTINGS_GROUP,
                          "floating_controls_blur",
                          settings->floating_controls_blur);
   g_key_file_set_double(key_file,
@@ -115,4 +141,30 @@ waytator_settings_load(WaytatorSettings *settings)
   waytator_settings_init(settings);
   if (g_key_file_load_from_file(key_file, path, G_KEY_FILE_NONE, NULL))
     waytator_settings_read(settings, key_file);
+}
+
+//changes one preference in the file and leaves the rest as they are, for the code that has no window to save them
+gboolean
+waytator_settings_save_boolean(const char *key,
+                               gboolean    value)
+{
+  g_autofree char *path = waytator_settings_path();
+  g_autofree char *directory = g_path_get_dirname(path);
+  g_autoptr(GKeyFile) key_file = g_key_file_new();
+  g_autoptr(GError) error = NULL;
+
+  g_key_file_load_from_file(key_file, path, G_KEY_FILE_KEEP_COMMENTS, NULL);
+  g_key_file_set_boolean(key_file, WAYTATOR_SETTINGS_GROUP, key, value);
+
+  if (g_mkdir_with_parents(directory, 0700) != 0) {
+    g_warning("Failed to create preferences directory %s", directory);
+    return FALSE;
+  }
+
+  if (!g_key_file_save_to_file(key_file, path, &error)) {
+    g_warning("Failed to save preferences to %s: %s", path, error->message);
+    return FALSE;
+  }
+
+  return TRUE;
 }

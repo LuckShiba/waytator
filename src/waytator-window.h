@@ -36,6 +36,8 @@ void waytator_window_destroy_settled(GtkWindow *const *windows,
                                      guint             n_windows);
 gboolean waytator_window_shortcut_is_valid(const char *shortcut);
 void waytator_window_ensure_css_loaded(void);
+void waytator_window_reload_preferences(GtkApplication *app,
+                                        WaytatorWindow *except);
 void waytator_window_clear_overrides(WaytatorWindow *self);
 void waytator_window_set_close_on_copy_override(WaytatorWindow *self,
                                                 gboolean        close_on_copy);
