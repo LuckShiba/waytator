@@ -26,6 +26,7 @@ waytator_settings_init(WaytatorSettings *settings)
   settings->screenshot_copy = TRUE;
   settings->capture_hide_waytator = TRUE;
   settings->capture_magnifier = FALSE;
+  settings->capture_brake_speed = 0.5;
   settings->floating_controls_blur = TRUE;
   settings->floating_controls_opacity = 0.7;
 }
@@ -69,6 +70,16 @@ waytator_settings_read(WaytatorSettings *settings,
                                                          "capture_magnifier",
                                                          NULL);
 
+  if (g_key_file_has_key(key_file, WAYTATOR_SETTINGS_GROUP, "capture_brake_speed", NULL)) {
+    const double speed = g_key_file_get_double(key_file,
+                                               WAYTATOR_SETTINGS_GROUP,
+                                               "capture_brake_speed",
+                                               NULL);
+
+    if (speed > 0.0 && speed <= 1.0)
+      settings->capture_brake_speed = speed;
+  }
+
   if (g_key_file_has_key(key_file, WAYTATOR_SETTINGS_GROUP, "floating_controls_blur", NULL))
     settings->floating_controls_blur = g_key_file_get_boolean(key_file,
                                                               WAYTATOR_SETTINGS_GROUP,
@@ -106,6 +117,10 @@ waytator_settings_write(const WaytatorSettings *settings,
                          WAYTATOR_SETTINGS_GROUP,
                          "capture_magnifier",
                          settings->capture_magnifier);
+  g_key_file_set_double(key_file,
+                        WAYTATOR_SETTINGS_GROUP,
+                        "capture_brake_speed",
+                        settings->capture_brake_speed);
   g_key_file_set_boolean(key_file,
                          WAYTATOR_SETTINGS_GROUP,
                          "floating_controls_blur",

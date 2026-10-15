@@ -8,8 +8,6 @@
 
 //in logical pixels, anything smaller is a stray click rather than a selection
 #define WAYTATOR_CAPTURE_MIN_SELECTION 3.0
-//how much slower the cursor goes while shift is held
-#define WAYTATOR_CAPTURE_BRAKE 0.5
 //the magnifier shows this many of the monitor's pixels across, odd so that one sits right under the pointer
 #define WAYTATOR_MAGNIFIER_PIXELS 15
 //how big each of them is drawn, in logical pixels
@@ -58,6 +56,7 @@ struct _WaytatorCaptureOverlay {
   gboolean offer_hide;
   gboolean hide_waytator;
   gboolean magnifier;
+  double brake_speed;
   //held while shift is, on the view the pointer was over when it went down
   WaytatorPointerBrake *brake;
   WaytatorCaptureView *brake_view;
@@ -199,8 +198,8 @@ waytator_capture_overlay_brake_moved(double   dx,
 {
   WaytatorCaptureOverlay *overlay = user_data;
   WaytatorCaptureView *view = overlay->brake_view;
-  const double x = CLAMP(view->pointer_x + dx * WAYTATOR_CAPTURE_BRAKE, 0.0, gtk_widget_get_width(GTK_WIDGET(view)));
-  const double y = CLAMP(view->pointer_y + dy * WAYTATOR_CAPTURE_BRAKE, 0.0, gtk_widget_get_height(GTK_WIDGET(view)));
+  const double x = CLAMP(view->pointer_x + dx * overlay->brake_speed, 0.0, gtk_widget_get_width(GTK_WIDGET(view)));
+  const double y = CLAMP(view->pointer_y + dy * overlay->brake_speed, 0.0, gtk_widget_get_height(GTK_WIDGET(view)));
 
   if (view->selecting) {
     waytator_capture_view_set_selection_end(view, x, y);
@@ -1227,6 +1226,7 @@ waytator_capture_overlay_show(GPtrArray                           *outputs,
   overlay->views = g_ptr_array_new();
   overlay->pill_style = waytator_capture_overlay_new_pill_style(&settings);
   overlay->magnifier = settings.capture_magnifier;
+  overlay->brake_speed = settings.capture_brake_speed;
   overlay->offer_hide = offer_hide;
   overlay->hide_waytator = hide_waytator;
   overlay->retake = retake;

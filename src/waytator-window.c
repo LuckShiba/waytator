@@ -1513,6 +1513,25 @@ waytator_window_capture_hide_changed(AdwSwitchRow   *row,
   waytator_window_save_preferences(self);
 }
 
+//the speeds the pointer can be slowed to while shift is held, as offered in the preferences
+static const double waytator_window_brake_speeds[] = { 0.25, 0.5, 0.75 };
+
+static void
+waytator_window_capture_brake_speed_changed(AdwComboRow    *row,
+                                            GParamSpec     *pspec,
+                                            WaytatorWindow *self)
+{
+  const guint selected = adw_combo_row_get_selected(row);
+
+  (void) pspec;
+
+  if (selected >= G_N_ELEMENTS(waytator_window_brake_speeds))
+    return;
+
+  self->settings.capture_brake_speed = waytator_window_brake_speeds[selected];
+  waytator_window_save_preferences(self);
+}
+
 static AdwPreferencesPage *
 waytator_window_new_screenshots_page(WaytatorWindow *self)
 {
@@ -1521,6 +1540,9 @@ waytator_window_new_screenshots_page(WaytatorWindow *self)
   AdwActionRow *folder_row = ADW_ACTION_ROW(adw_action_row_new());
   AdwSwitchRow *copy_row = ADW_SWITCH_ROW(adw_switch_row_new());
   AdwSwitchRow *hide_row = ADW_SWITCH_ROW(adw_switch_row_new());
+  AdwComboRow *brake_row = ADW_COMBO_ROW(adw_combo_row_new());
+  g_autoptr(GtkStringList) brake_model = gtk_string_list_new((const char *[]) { "25%", "50%", "75%", NULL });
+  guint brake_selected = 0;
   GtkWidget *choose_button = gtk_button_new_from_icon_name("folder-open-symbolic");
   GtkWidget *clear_button = gtk_button_new_from_icon_name("window-close-symbolic");
 
@@ -1533,6 +1555,7 @@ waytator_window_new_screenshots_page(WaytatorWindow *self)
                                           "which saves and copies them itself");
     gtk_widget_set_sensitive(GTK_WIDGET(folder_row), FALSE);
     gtk_widget_set_sensitive(GTK_WIDGET(copy_row), FALSE);
+    gtk_widget_set_sensitive(GTK_WIDGET(brake_row), FALSE);
   } else {
     adw_preferences_group_set_description(group,
                                           "These settings apply to screenshots taken by waytator");
@@ -1560,9 +1583,21 @@ waytator_window_new_screenshots_page(WaytatorWindow *self)
   adw_switch_row_set_active(hide_row, self->settings.capture_hide_waytator);
   g_signal_connect(hide_row, "notify::active", G_CALLBACK(waytator_window_capture_hide_changed), self);
 
+  //a speed set by hand in the file shows as the nearest one offered
+  for (guint i = 1; i < G_N_ELEMENTS(waytator_window_brake_speeds); i++)
+    if (fabs(waytator_window_brake_speeds[i] - self->settings.capture_brake_speed)
+        < fabs(waytator_window_brake_speeds[brake_selected] - self->settings.capture_brake_speed))
+      brake_selected = i;
+  adw_preferences_row_set_title(ADW_PREFERENCES_ROW(brake_row), "Pointer speed with Shift");
+  adw_action_row_set_subtitle(ADW_ACTION_ROW(brake_row), "Holding Shift slows the pointer while selecting an area");
+  adw_combo_row_set_model(brake_row, G_LIST_MODEL(brake_model));
+  adw_combo_row_set_selected(brake_row, brake_selected);
+  g_signal_connect(brake_row, "notify::selected", G_CALLBACK(waytator_window_capture_brake_speed_changed), self);
+
   adw_preferences_group_add(group, GTK_WIDGET(folder_row));
   adw_preferences_group_add(group, GTK_WIDGET(copy_row));
   adw_preferences_group_add(group, GTK_WIDGET(hide_row));
+  adw_preferences_group_add(group, GTK_WIDGET(brake_row));
   adw_preferences_page_add(page, group);
   return page;
 }
