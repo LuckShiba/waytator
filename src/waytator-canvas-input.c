@@ -681,6 +681,7 @@ waytator_window_zoom_fit_action(GtkWidget  *widget,
   (void) parameter;
 
   waytator_window_queue_fit_zoom(WAYTATOR_WINDOW(widget));
+  waytator_window_flash_zoom_readout(WAYTATOR_WINDOW(widget));
 }
 
 static void

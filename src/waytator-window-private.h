@@ -5,6 +5,32 @@
 #include "waytator-types.h"
 #include "waytator-window.h"
 
+//how far the floating controls have folded to fit the window, see waytator-chrome-layout.c
+typedef enum {
+  WAYTATOR_OPEN_LABEL,
+  WAYTATOR_OPEN_ICON,
+  //in the camera button's menu
+  WAYTATOR_OPEN_FOLDED,
+} WaytatorOpenFold;
+
+typedef enum {
+  WAYTATOR_ZOOM_FULL,
+  WAYTATOR_ZOOM_CHIP,
+  //in the main menu, with a readout over the image while zooming
+  WAYTATOR_ZOOM_MENU,
+} WaytatorZoomFold;
+
+typedef struct {
+  gboolean rail;
+  WaytatorOpenFold open;
+  gboolean capture;
+  gboolean title;
+  WaytatorZoomFold zoom;
+  gboolean save;
+  gboolean keep_open;
+  gboolean tight;
+} WaytatorChromeFolds;
+
 struct _WaytatorWindow {
   AdwApplicationWindow parent_instance;
 
@@ -32,6 +58,28 @@ struct _WaytatorWindow {
   GtkTextView *ocr_selected_text_view;
   GtkTextView *ocr_all_text_view;
   GtkWidget *start_actions;
+  GtkWidget *end_actions;
+  GtkWidget *top_bar;
+  GtkWidget *bottom_bar;
+  GtkWidget *dock_box;
+  GtkWidget *options_row;
+  GtkWidget *tool_rail;
+  GtkWidget *chrome_watcher;
+  GtkWidget *open_label_button;
+  GtkWidget *open_icon_button;
+  GtkWidget *open_separator;
+  GtkWidget *crop_actions;
+  GtkWidget *zoom_out_button;
+  GtkWidget *zoom_in_button;
+  GtkMenuButton *zoom_chip;
+  GtkLabel *zoom_chip_label;
+  GtkLabel *zoom_popover_label;
+  GtkLabel *zoom_menu_label;
+  GtkWidget *zoom_menu_row;
+  GtkLabel *zoom_osd;
+  GMenu *app_menu;
+  GMenu *capture_menu;
+  char *app_menu_key;
   GtkWidget *start_window_controls_pill;
   GtkWindowControls *start_window_controls;
   GListModel *start_window_controls_children;
@@ -174,6 +222,17 @@ struct _WaytatorWindow {
   double pointer_widget_y;
   gboolean pointer_in;
   WaytatorWindowBackgroundMode window_background_mode;
+  WaytatorChromeFolds folds;
+  int chrome_width;
+  int chrome_height;
+  guint chrome_layout_id;
+  guint zoom_osd_timeout_id;
+  //the widest tool options, so switching tools never rearranges the window
+  int options_max_width;
+  //room the floating controls take on each side, kept clear when the image is fitted
+  int inset_top;
+  int inset_bottom;
+  int inset_start;
   gboolean updating_ui;
   gboolean size_drawer_open;
   gboolean size_editing;
@@ -216,6 +275,13 @@ void waytator_window_update_ocr_overlay(WaytatorWindow *self);
 void waytator_window_maybe_start_ocr(WaytatorWindow *self);
 void waytator_window_update_ocr_panel(WaytatorWindow *self);
 void waytator_window_reset_save_button(WaytatorWindow *self);
+void waytator_window_update_save_menu(WaytatorWindow *self);
+void waytator_window_update_copy_controls(WaytatorWindow *self);
+gboolean waytator_window_closes_on_copy(WaytatorWindow *self);
+void waytator_window_setup_chrome_layout(WaytatorWindow *self);
+void waytator_window_queue_chrome_layout(WaytatorWindow *self);
+void waytator_window_update_chrome_layout(WaytatorWindow *self);
+void waytator_window_flash_zoom_readout(WaytatorWindow *self);
 void waytator_window_update_history_buttons(WaytatorWindow *self);
 void waytator_window_clear_history(WaytatorWindow *self);
 void waytator_window_record_undo_step(WaytatorWindow *self);

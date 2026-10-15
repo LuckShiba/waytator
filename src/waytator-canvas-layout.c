@@ -39,6 +39,9 @@ waytator_window_get_fit_zoom(WaytatorWindow *self)
     return 1.0;
 
   waytator_window_get_viewport_size(self, &viewport_width, &viewport_height);
+  //the floating controls keep their part of the window, the fitted image goes in the rest
+  viewport_width -= self->inset_start;
+  viewport_height -= self->inset_top + self->inset_bottom;
   if (viewport_width <= 0 || viewport_height <= 0)
     return 1.0;
 
@@ -55,13 +58,18 @@ waytator_window_update_zoom_label(WaytatorWindow *self)
   else
     gtk_widget_remove_css_class(GTK_WIDGET(self->fit_zoom_button), "selected-tool");
 
-  if (self->texture == NULL) {
-    gtk_label_set_text(self->zoom_label, "--");
-    return;
-  }
+  g_autofree char *label = self->texture != NULL
+                         ? g_strdup_printf("%.0f%%", waytator_window_get_effective_zoom(self) * 100.0)
+                         : g_strdup("--");
 
-  g_autofree char *label = g_strdup_printf("%.0f%%", waytator_window_get_effective_zoom(self) * 100.0);
+  //the full controls, the chip, the chip's popover and the row in the main menu all show it
   gtk_label_set_text(self->zoom_label, label);
+  gtk_label_set_text(self->zoom_chip_label, label);
+  if (self->zoom_popover_label != NULL)
+    gtk_label_set_text(self->zoom_popover_label, label);
+  if (self->zoom_menu_label != NULL)
+    gtk_label_set_text(self->zoom_menu_label, label);
+  gtk_label_set_text(self->zoom_osd, label);
 }
 
 static gboolean
@@ -292,6 +300,10 @@ waytator_window_update_picture_size(WaytatorWindow *self)
   const int req_height = MAX(1, (int) lround(height * zoom));
 
   gtk_widget_set_size_request(self->canvas_surface, req_width, req_height);
+  //centred in what the controls leave free while fitted; zoomed in, the image may go under them
+  gtk_widget_set_margin_top(self->canvas_surface, self->fit_mode ? self->inset_top : 0);
+  gtk_widget_set_margin_bottom(self->canvas_surface, self->fit_mode ? self->inset_bottom : 0);
+  gtk_widget_set_margin_start(self->canvas_surface, self->fit_mode ? self->inset_start : 0);
   waytator_window_update_ocr_overlay(self);
 }
 
@@ -322,8 +334,9 @@ waytator_window_set_zoom_at(WaytatorWindow *self,
   double old_scroll_x = gtk_adjustment_get_value(hadjustment);
   double old_scroll_y = gtk_adjustment_get_value(vadjustment);
 
-  double old_widget_x = old_scroll_x + viewport_x;
-  double old_widget_y = old_scroll_y + viewport_y;
+  //while fitted the image sits inside margins that keep it clear of the controls
+  double old_widget_x = old_scroll_x + viewport_x - gtk_widget_get_margin_start(self->canvas_surface);
+  double old_widget_y = old_scroll_y + viewport_y - gtk_widget_get_margin_top(self->canvas_surface);
 
   double widget_width = gtk_widget_get_width(self->canvas_surface);
   double widget_height = gtk_widget_get_height(self->canvas_surface);
@@ -368,6 +381,7 @@ waytator_window_set_zoom_at(WaytatorWindow *self,
 
   waytator_window_set_adjustment_clamped(hadjustment, new_scroll_x);
   waytator_window_set_adjustment_clamped(vadjustment, new_scroll_y);
+  waytator_window_flash_zoom_readout(self);
 }
 
 void
@@ -385,12 +399,9 @@ waytator_window_sync_state(WaytatorWindow *self)
 
   gtk_stack_set_visible_child(self->canvas_stack,
                               has_image ? GTK_WIDGET(self->canvas_scroller) : self->empty_page);
-  gtk_widget_set_visible(self->open_actions, has_image);
   gtk_widget_set_visible(self->tool_group, has_image);
   gtk_widget_set_visible(self->history_actions, has_image);
   gtk_widget_set_visible(self->document_actions, has_image);
-  gtk_widget_set_visible(self->file_group, has_image);
-  gtk_widget_set_visible(self->zoom_group, has_image);
   gtk_widget_set_visible(self->settings_group, has_image);
   gtk_widget_set_sensitive(self->tool_group, has_image);
   gtk_widget_set_sensitive(self->settings_group, has_image);
@@ -411,11 +422,13 @@ waytator_window_sync_state(WaytatorWindow *self)
     gtk_label_set_text(self->file_label, "no image loaded");
     waytator_window_update_zoom_label(self);
     waytator_window_update_tool_ui(self);
+    waytator_window_update_chrome_layout(self);
     return;
   }
 
   waytator_window_update_zoom_label(self);
   waytator_window_update_tool_ui(self);
+  waytator_window_update_chrome_layout(self);
 }
 
 void
