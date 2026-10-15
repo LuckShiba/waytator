@@ -107,13 +107,35 @@ If launchers fail to start `waytator` after installing from source, make sure yo
 
 ## Usage
 
+### Annotating images
+
+Open a screenshot or any other image to mark it up, then copy or save it:
+
 ```bash
-waytator --screenshot               # select an area of the screen and edit it
-waytator --screenshot screen        # capture a whole screen and edit it
-waytator --screenshot --notify      # save and copy a screenshot without opening the editor
-waytator path/to/image.png          # edit an image
-grim -g "$(slurp)" - | waytator     # edit an image piped in
+waytator path/to/image.png          # open an image
+grim -g "$(slurp)" - | waytator     # open an image piped in
 waytator                            # open the app empty
+```
+
+Add `--name "Screenshot.png"` to name a piped image.
+
+Tools have single-key shortcuts, shown on their buttons, and `[` and `]` change the size. They can all be changed in Preferences → Shortcuts.
+
+To keep niri's own screenshot UI and annotate what it takes, bind your screenshot key to `scripts/screenshot-to-waytator.sh`. Screenshots you save or copy there then open in waytator:
+
+```kdl
+// in your config.kdl, in the binds section
+Print { spawn <path-to-screenshot-to-waytator.sh>; }
+```
+
+### Taking screenshots
+
+waytator can take the screenshot itself and open it for annotating straight away:
+
+```bash
+waytator --screenshot               # select an area of the screen
+waytator --screenshot screen        # capture a whole screen
+waytator --screenshot --notify      # save and copy it without opening the editor
 ```
 
 While you pick what to capture, the bar on screen switches between area and screen, waits a few seconds before capturing, and turns on a magnifier for pixel-exact selections. Hold `Shift` to slow the cursor down. `Esc` or a right click cancels. The same captures are also in the app itself.
@@ -123,24 +145,11 @@ Screenshots are saved to your Screenshots folder and copied to the clipboard. Bo
 A few more options:
 
 ```bash
-waytator --screenshot --delay 3                          # wait 3 seconds before capturing
-waytator --screenshot --screen DP-1                      # capture that screen straight away
-grim -g "$(slurp)" - | waytator --name "Screenshot.png"  # name a piped image
+waytator --screenshot --delay 3       # wait 3 seconds before capturing
+waytator --screenshot --screen DP-1   # capture that screen straight away
 ```
 
-Run `waytator --help` for the rest, including overriding shortcuts for one launch.
-
-Tools have single-key shortcuts, shown on their buttons, and `[` and `]` change the size. They can all be changed in Preferences → Shortcuts.
-
-### Things to know
-
-- Screenshots are tested on niri and GNOME.
-- On GNOME, waytator opens GNOME's own screenshot tool and then edits the result. `--screen` doesn't work there.
-- On some desktops, the first screenshot asks for permission.
-
-### Compositor keybinds
-
-Bind a key to `waytator --screenshot` to capture and annotate in one step. For example with niri:
+Bind them to keys to capture and annotate in one step. For example with niri:
 
 ```kdl
 // in your config.kdl, in the binds section
@@ -149,16 +158,17 @@ Shift+Print { spawn "waytator" "--screenshot" "screen"; }
 Ctrl+Print { spawn "waytator" "--screenshot" "--notify"; }
 ```
 
-### Niri users
+Things to know:
 
-To keep niri's own screenshot UI instead, bind your screenshot key to `scripts/screenshot-to-waytator.sh`. Screenshots you save or copy there then open in waytator.
+- Screenshots are tested on niri and GNOME.
+- On GNOME, waytator opens GNOME's own screenshot tool and then edits the result. `--screen` doesn't work there.
+- On some desktops, the first screenshot asks for permission.
 
-```kdl
-// in your config.kdl, in the binds section
-Print { spawn <path-to-screenshot-to-waytator.sh>; }
-```
+### More
 
-Floating waytator windows work best:
+Run `waytator --help` for every option, including overriding shortcuts for one launch.
+
+On niri, floating waytator windows work best:
 
 ```kdl
 // in your config.kdl
