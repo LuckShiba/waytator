@@ -14,6 +14,8 @@
 #define WAYTATOR_MAGNIFIER_ZOOM 10.0f
 //keeps the magnifier off the cursor
 #define WAYTATOR_MAGNIFIER_GAP 24.0f
+//the closest the bar comes to the edges of the screen
+#define WAYTATOR_CAPTURE_PILL_MARGIN 8
 
 typedef struct _WaytatorCaptureOverlay WaytatorCaptureOverlay;
 
@@ -33,7 +35,13 @@ struct _WaytatorCaptureView {
   GtkToggleButton *screen_button;
   GtkToggleButton *magnifier_button;
   GtkRevealer *delay_choices;
-  GtkLabel *hint_label;
+  GtkWidget *shift_hint;
+  //where the bar was dragged to, in the view's logical pixels, and where in it the pointer took hold of it
+  gboolean pill_moved;
+  double pill_x;
+  double pill_y;
+  double grab_x;
+  double grab_y;
   gboolean hovered;
   gboolean selecting;
   //where the cursor is, or the one drawn in its place while braking
@@ -278,11 +286,11 @@ waytator_capture_overlay_finish(WaytatorCaptureOverlay *overlay,
 }
 
 static void
-waytator_capture_overlay_hide_toggled(GtkCheckButton         *button,
+waytator_capture_overlay_hide_toggled(GtkToggleButton        *button,
                                       WaytatorCaptureOverlay *overlay)
 {
   if (waytator_capture_overlay_close(overlay))
-    overlay->retake(gtk_check_button_get_active(button), overlay->mode, 0, overlay->user_data);
+    overlay->retake(gtk_toggle_button_get_active(button), overlay->mode, 0, overlay->user_data);
 }
 
 //the frozen frame is from before the wait, so the overlay goes and a new one is taken once it is over
@@ -330,9 +338,7 @@ waytator_capture_overlay_set_mode(WaytatorCaptureOverlay *overlay,
 
     gtk_toggle_button_set_active(area ? view->area_button : view->screen_button, TRUE);
     gtk_widget_set_sensitive(GTK_WIDGET(view->magnifier_button), area);
-    gtk_label_set_text(view->hint_label,
-                       area ? "Drag to select · Shift to slow down · Esc to cancel"
-                            : "Click a screen · Esc to cancel");
+    gtk_widget_set_visible(view->shift_hint, area);
     gtk_widget_set_cursor_from_name(GTK_WIDGET(view), area ? "crosshair" : "default");
     view->selecting = FALSE;
     gtk_widget_queue_draw(GTK_WIDGET(view));
@@ -987,17 +993,27 @@ waytator_capture_overlay_mode_toggled(GtkToggleButton     *button,
                                       : WAYTATOR_CAPTURE_SCREEN);
 }
 
+//the bar's buttons never take the keyboard, keys belong to the overlay
+static void
+waytator_capture_overlay_init_pill_button(GtkWidget  *button,
+                                          const char *tooltip)
+{
+  gtk_widget_set_focusable(button, FALSE);
+  gtk_widget_add_css_class(button, "flat");
+  if (tooltip != NULL)
+    gtk_widget_set_tooltip_text(button, tooltip);
+}
+
 static GtkToggleButton *
 waytator_capture_overlay_new_mode_button(WaytatorCaptureView *view,
+                                         GtkWidget           *modes,
                                          const char          *label)
 {
   GtkWidget *button = gtk_toggle_button_new_with_label(label);
 
-  //keys belong to the overlay, the only one it listens for is escape
-  gtk_widget_set_focusable(button, FALSE);
-  gtk_widget_add_css_class(button, "flat");
+  waytator_capture_overlay_init_pill_button(button, NULL);
   g_signal_connect(button, "toggled", G_CALLBACK(waytator_capture_overlay_mode_toggled), view);
-  gtk_box_append(GTK_BOX(view->pill), button);
+  gtk_box_append(GTK_BOX(modes), button);
   return GTK_TOGGLE_BUTTON(button);
 }
 
@@ -1016,19 +1032,19 @@ waytator_capture_overlay_magnifier_toggled(GtkToggleButton     *button,
     waytator_window_reload_preferences(GTK_APPLICATION(g_application_get_default()), NULL);
 }
 
-static void
-waytator_capture_overlay_append_magnifier(WaytatorCaptureView *view)
+static GtkWidget *
+waytator_capture_overlay_append_toggle(WaytatorCaptureView *view,
+                                       const char          *icon_name,
+                                       const char          *tooltip,
+                                       gboolean             active)
 {
   GtkWidget *button = gtk_toggle_button_new();
 
-  gtk_button_set_icon_name(GTK_BUTTON(button), "waytator-magnifier-symbolic");
-  gtk_widget_set_tooltip_text(button, "Magnifier");
-  gtk_widget_set_focusable(button, FALSE);
-  gtk_widget_add_css_class(button, "flat");
-  gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(button), view->overlay->magnifier);
-  g_signal_connect(button, "toggled", G_CALLBACK(waytator_capture_overlay_magnifier_toggled), view);
+  gtk_button_set_icon_name(GTK_BUTTON(button), icon_name);
+  waytator_capture_overlay_init_pill_button(button, tooltip);
+  gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(button), active);
   gtk_box_append(GTK_BOX(view->pill), button);
-  view->magnifier_button = GTK_TOGGLE_BUTTON(button);
+  return button;
 }
 
 static void
@@ -1047,24 +1063,16 @@ static void
 waytator_capture_overlay_append_delay(WaytatorCaptureView *view)
 {
   static const guint delays[] = { 1, 3, 5, 10 };
-  GtkWidget *button = gtk_toggle_button_new();
-  GtkWidget *content = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
-  GtkWidget *choices = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 4);
+  GtkWidget *button = waytator_capture_overlay_append_toggle(view, "alarm-symbolic", "Delay", FALSE);
+  GtkWidget *choices = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 2);
 
-  gtk_box_append(GTK_BOX(content), gtk_image_new_from_icon_name("alarm-symbolic"));
-  gtk_box_append(GTK_BOX(content), gtk_label_new("Delay"));
-  gtk_button_set_child(GTK_BUTTON(button), content);
-  gtk_widget_set_focusable(button, FALSE);
-  gtk_widget_add_css_class(button, "flat");
   g_signal_connect(button, "toggled", G_CALLBACK(waytator_capture_overlay_delay_toggled), view);
-  gtk_box_append(GTK_BOX(view->pill), button);
 
   for (guint i = 0; i < G_N_ELEMENTS(delays); i++) {
-    g_autofree char *label = g_strdup_printf("%u s", delays[i]);
+    g_autofree char *label = g_strdup_printf("%us", delays[i]);
     GtkWidget *choice = gtk_button_new_with_label(label);
 
-    gtk_widget_set_focusable(choice, FALSE);
-    gtk_widget_add_css_class(choice, "flat");
+    waytator_capture_overlay_init_pill_button(choice, NULL);
     gtk_widget_add_css_class(choice, "capture-delay-choice");
     g_object_set_data(G_OBJECT(choice), "seconds", GUINT_TO_POINTER(delays[i]));
     g_signal_connect(choice, "clicked", G_CALLBACK(waytator_capture_overlay_delay_clicked), view);
@@ -1077,38 +1085,189 @@ waytator_capture_overlay_append_delay(WaytatorCaptureView *view)
   gtk_box_append(GTK_BOX(view->pill), GTK_WIDGET(view->delay_choices));
 }
 
+//bottom centre until it is dragged somewhere, and always whole on the screen, even while the delay choices widen it
+static void
+waytator_capture_overlay_get_pill_rect(WaytatorCaptureView *view,
+                                       GdkRectangle        *rect)
+{
+  GtkWidget *stack = gtk_widget_get_parent(view->pill);
+  const int width = gtk_widget_get_width(stack);
+  const int height = gtk_widget_get_height(stack);
+  double x;
+  double y;
+
+  gtk_widget_measure(view->pill, GTK_ORIENTATION_HORIZONTAL, -1, NULL, &rect->width, NULL, NULL);
+  gtk_widget_measure(view->pill, GTK_ORIENTATION_VERTICAL, rect->width, NULL, &rect->height, NULL, NULL);
+  x = view->pill_moved ? view->pill_x : (width - rect->width) / 2.0;
+  y = view->pill_moved ? view->pill_y : height - rect->height - 32.0;
+
+  rect->x = CLAMP((int) round(x),
+                  WAYTATOR_CAPTURE_PILL_MARGIN,
+                  MAX(width - rect->width - WAYTATOR_CAPTURE_PILL_MARGIN, WAYTATOR_CAPTURE_PILL_MARGIN));
+  rect->y = CLAMP((int) round(y),
+                  WAYTATOR_CAPTURE_PILL_MARGIN,
+                  MAX(height - rect->height - WAYTATOR_CAPTURE_PILL_MARGIN, WAYTATOR_CAPTURE_PILL_MARGIN));
+}
+
+static gboolean
+waytator_capture_overlay_place_pill(GtkOverlay          *stack,
+                                    GtkWidget           *widget,
+                                    GdkRectangle        *allocation,
+                                    WaytatorCaptureView *view)
+{
+  (void) stack;
+
+  if (widget != view->pill)
+    return FALSE;
+
+  waytator_capture_overlay_get_pill_rect(view, allocation);
+  return TRUE;
+}
+
+static void
+waytator_capture_overlay_handle_drag_begin(GtkGestureDrag      *gesture,
+                                           double               x,
+                                           double               y,
+                                           WaytatorCaptureView *view)
+{
+  GtkWidget *handle = gtk_event_controller_get_widget(GTK_EVENT_CONTROLLER(gesture));
+  graphene_rect_t in_pill;
+
+  if (!gtk_widget_compute_bounds(handle, view->pill, &in_pill))
+    return;
+
+  view->grab_x = in_pill.origin.x + x;
+  view->grab_y = in_pill.origin.y + y;
+  gtk_widget_set_cursor_from_name(handle, "grabbing");
+}
+
+//worked out from where the pointer is on the screen, the handle itself moves along under it
+static void
+waytator_capture_overlay_handle_drag_update(GtkGestureDrag      *gesture,
+                                            double               offset_x,
+                                            double               offset_y,
+                                            WaytatorCaptureView *view)
+{
+  GtkWidget *handle = gtk_event_controller_get_widget(GTK_EVENT_CONTROLLER(gesture));
+  GtkWidget *stack = gtk_widget_get_parent(view->pill);
+  graphene_rect_t on_screen;
+  double start_x;
+  double start_y;
+
+  if (!gtk_gesture_drag_get_start_point(gesture, &start_x, &start_y)
+      || !gtk_widget_compute_bounds(handle, stack, &on_screen))
+    return;
+
+  view->pill_moved = TRUE;
+  view->pill_x = on_screen.origin.x + start_x + offset_x - view->grab_x;
+  view->pill_y = on_screen.origin.y + start_y + offset_y - view->grab_y;
+  gtk_widget_queue_allocate(stack);
+}
+
+static void
+waytator_capture_overlay_handle_drag_end(GtkGestureDrag      *gesture,
+                                         double               offset_x,
+                                         double               offset_y,
+                                         WaytatorCaptureView *view)
+{
+  GtkWidget *handle = gtk_event_controller_get_widget(GTK_EVENT_CONTROLLER(gesture));
+  GdkRectangle placed;
+
+  waytator_capture_overlay_handle_drag_update(gesture, offset_x, offset_y, view);
+  gtk_widget_set_cursor_from_name(handle, "grab");
+
+  //dragged past an edge, it stays where it stopped rather than where the pointer let go
+  if (view->pill_moved) {
+    waytator_capture_overlay_get_pill_rect(view, &placed);
+    view->pill_x = placed.x;
+    view->pill_y = placed.y;
+  }
+}
+
+static void
+waytator_capture_overlay_append_handle(WaytatorCaptureView *view)
+{
+  GtkWidget *handle = gtk_image_new_from_icon_name("list-drag-handle-symbolic");
+  GtkGesture *drag = gtk_gesture_drag_new();
+
+  gtk_widget_add_css_class(handle, "capture-handle");
+  gtk_widget_set_tooltip_text(handle, "Move");
+  gtk_widget_set_cursor_from_name(handle, "grab");
+  gtk_gesture_single_set_button(GTK_GESTURE_SINGLE(drag), GDK_BUTTON_PRIMARY);
+  g_signal_connect(drag, "drag-begin", G_CALLBACK(waytator_capture_overlay_handle_drag_begin), view);
+  g_signal_connect(drag, "drag-update", G_CALLBACK(waytator_capture_overlay_handle_drag_update), view);
+  g_signal_connect(drag, "drag-end", G_CALLBACK(waytator_capture_overlay_handle_drag_end), view);
+  gtk_widget_add_controller(handle, GTK_EVENT_CONTROLLER(drag));
+  gtk_box_append(GTK_BOX(view->pill), handle);
+}
+
+//the one control there is nothing else to show for
+static void
+waytator_capture_overlay_append_shift_hint(WaytatorCaptureView *view)
+{
+  GtkWidget *key = gtk_label_new("Shift");
+
+  view->shift_hint = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
+  gtk_widget_add_css_class(view->shift_hint, "capture-shortcut");
+  gtk_widget_set_tooltip_text(view->shift_hint, "Hold Shift to move the pointer slower");
+  gtk_widget_add_css_class(key, "capture-keycap");
+  gtk_widget_set_valign(key, GTK_ALIGN_CENTER);
+  gtk_box_append(GTK_BOX(view->shift_hint), key);
+  gtk_box_append(GTK_BOX(view->shift_hint), gtk_label_new("slow"));
+  gtk_box_append(GTK_BOX(view->pill), view->shift_hint);
+}
+
+static void
+waytator_capture_overlay_cancel_clicked(GtkButton           *button,
+                                        WaytatorCaptureView *view)
+{
+  (void) button;
+
+  waytator_capture_overlay_finish(view->overlay, NULL);
+}
+
 static void
 waytator_capture_overlay_build_pill(WaytatorCaptureView *view)
 {
-  view->pill = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 4);
-  gtk_widget_add_css_class(view->pill, "capture-pill");
-  gtk_widget_set_halign(view->pill, GTK_ALIGN_CENTER);
-  gtk_widget_set_valign(view->pill, GTK_ALIGN_END);
-  gtk_widget_set_margin_bottom(view->pill, 32);
+  GtkWidget *modes = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
+  GtkWidget *cancel = gtk_button_new_from_icon_name("window-close-symbolic");
+  GtkWidget *button;
 
-  view->area_button = waytator_capture_overlay_new_mode_button(view, "Area");
-  view->screen_button = waytator_capture_overlay_new_mode_button(view, "Screen");
+  view->pill = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 2);
+  gtk_widget_add_css_class(view->pill, "capture-pill");
+
+  waytator_capture_overlay_append_handle(view);
+
+  gtk_widget_add_css_class(modes, "capture-modes");
+  view->area_button = waytator_capture_overlay_new_mode_button(view, modes, "Area");
+  view->screen_button = waytator_capture_overlay_new_mode_button(view, modes, "Screen");
   gtk_toggle_button_set_group(view->screen_button, view->area_button);
+  gtk_box_append(GTK_BOX(view->pill), modes);
   waytator_capture_overlay_append_separator(view);
-  waytator_capture_overlay_append_magnifier(view);
-  waytator_capture_overlay_append_separator(view);
+
+  button = waytator_capture_overlay_append_toggle(view,
+                                                  "waytator-magnifier-symbolic",
+                                                  "Magnifier",
+                                                  view->overlay->magnifier);
+  g_signal_connect(button, "toggled", G_CALLBACK(waytator_capture_overlay_magnifier_toggled), view);
+  view->magnifier_button = GTK_TOGGLE_BUTTON(button);
 
   if (view->overlay->offer_hide) {
-    GtkWidget *hide_button = gtk_check_button_new_with_label("Hide waytator");
-
-    gtk_check_button_set_active(GTK_CHECK_BUTTON(hide_button), view->overlay->hide_waytator);
-    gtk_widget_set_focusable(hide_button, FALSE);
-    g_signal_connect(hide_button, "toggled", G_CALLBACK(waytator_capture_overlay_hide_toggled), view->overlay);
-    gtk_box_append(GTK_BOX(view->pill), hide_button);
-    waytator_capture_overlay_append_separator(view);
+    button = waytator_capture_overlay_append_toggle(view,
+                                                    "view-conceal-symbolic",
+                                                    "Hide waytator",
+                                                    view->overlay->hide_waytator);
+    g_signal_connect(button, "toggled", G_CALLBACK(waytator_capture_overlay_hide_toggled), view->overlay);
   }
 
   waytator_capture_overlay_append_delay(view);
   waytator_capture_overlay_append_separator(view);
+  waytator_capture_overlay_append_shift_hint(view);
 
-  view->hint_label = GTK_LABEL(gtk_label_new(NULL));
-  gtk_widget_add_css_class(GTK_WIDGET(view->hint_label), "capture-hint");
-  gtk_box_append(GTK_BOX(view->pill), GTK_WIDGET(view->hint_label));
+  waytator_capture_overlay_init_pill_button(cancel, "Cancel (Esc)");
+  gtk_widget_add_css_class(cancel, "capture-cancel");
+  g_signal_connect(cancel, "clicked", G_CALLBACK(waytator_capture_overlay_cancel_clicked), view);
+  gtk_box_append(GTK_BOX(view->pill), cancel);
 }
 
 static gboolean
@@ -1206,6 +1365,7 @@ waytator_capture_overlay_add_window(WaytatorCaptureOverlay *overlay,
 
   gtk_overlay_set_child(GTK_OVERLAY(stack), GTK_WIDGET(view));
   gtk_overlay_add_overlay(GTK_OVERLAY(stack), view->pill);
+  g_signal_connect(stack, "get-child-position", G_CALLBACK(waytator_capture_overlay_place_pill), view);
   gtk_window_set_child(window, stack);
   gtk_window_set_decorated(window, FALSE);
   gtk_widget_add_css_class(GTK_WIDGET(window), "capture-overlay");

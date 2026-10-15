@@ -467,21 +467,64 @@
   background: alpha(white, 0.08);
 }
 
-.capture-pill checkbutton {
+.capture-pill button.capture-cancel {
   min-height: 32px;
-  padding: 0 12px 0 8px;
+  min-width: 32px;
+  padding: 0;
   border-radius: 10px;
+  color: alpha(white, 0.7);
+  background: transparent;
+  background-color: transparent;
+  border-color: transparent;
+  box-shadow: none;
 }
 
-.capture-pill checkbutton:hover {
+.capture-pill button.capture-cancel:hover {
+  color: white;
   background: alpha(white, 0.08);
 }
 
-.capture-pill checkbutton check:not(:checked) {
-  box-shadow: inset 0 0 0 2px alpha(white, 0.45);
+.capture-pill togglebutton.flat.image-button {
+  min-width: 32px;
+  padding: 0;
 }
 
-.capture-hint {
-  margin: 0 10px 0 4px;
-  color: alpha(white, 0.7);
+.capture-pill .capture-handle {
+  min-width: 18px;
+  min-height: 32px;
+  margin: 0 2px;
+  color: alpha(white, 0.4);
+}
+
+.capture-pill .capture-handle:hover {
+  color: alpha(white, 0.8);
+}
+
+/* the two modes read as one switch */
+.capture-pill .capture-modes {
+  padding: 2px;
+  border-radius: 12px;
+  background: alpha(white, 0.06);
+}
+
+.capture-pill .capture-modes togglebutton.flat {
+  min-height: 28px;
+  border-radius: 9px;
+}
+
+.capture-pill .capture-shortcut {
+  margin: 0 8px 0 6px;
+  color: alpha(white, 0.55);
+  font-size: 0.9em;
+}
+
+.capture-pill .capture-keycap {
+  padding: 1px 6px;
+  border: 1px solid alpha(white, 0.22);
+  border-radius: 5px;
+  box-shadow: inset 0 -1px alpha(white, 0.12);
+  background: alpha(white, 0.06);
+  color: alpha(white, 0.85);
+  font-size: 0.85em;
+  font-weight: 600;
 }
