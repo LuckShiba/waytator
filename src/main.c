@@ -509,16 +509,31 @@ done:
   return status;
 }
 
-//only the instance that stays runs this, one that hands its command line over never sets up gtk.
-//loading a big icon theme like Papirus took most of a second at startup, Adwaita is always there with gtk
-static void
-app_startup(GApplication *app,
-            gpointer      user_data)
-{
-  (void) app;
-  (void) user_data;
+//no theme goes by this name, so gtk loads none and every icon comes from waytator, gtk or libadwaita
+#define WAYTATOR_ICON_THEME "waytator-bundled-only"
 
-  g_object_set(gtk_settings_get_default(), "gtk-icon-theme-name", "Adwaita", NULL);
+static void (*app_settings_parent_constructed)(GObject *object);
+
+static void
+app_settings_constructed(GObject *object)
+{
+  if (app_settings_parent_constructed != NULL)
+    app_settings_parent_constructed(object);
+
+  g_object_set(object, "gtk-icon-theme-name", WAYTATOR_ICON_THEME, NULL);
+}
+
+//gtk starts loading the icon theme its settings name while it builds them, during its own startup and
+//before anything here runs, and once that has begun a new name waits for it to finish. a big theme like
+//Papirus took most of a second, twice when settings.ini and the desktop named different ones, so the
+//name is set the moment the settings exist
+static void
+app_use_bundled_icons(void)
+{
+  GObjectClass *settings_class = g_type_class_ref(GTK_TYPE_SETTINGS);
+
+  app_settings_parent_constructed = settings_class->constructed;
+  settings_class->constructed = app_settings_constructed;
 }
 
 int
@@ -538,6 +553,8 @@ main(int   argc,
     run_argv = stdin_argv;
     run_argc = 2;
   }
+
+  app_use_bundled_icons();
 
   app = adw_application_new(WAYTATOR_APP_ID,
                              G_APPLICATION_HANDLES_COMMAND_LINE | G_APPLICATION_HANDLES_OPEN);
@@ -562,7 +579,6 @@ main(int   argc,
   gtk_application_set_accels_for_action(GTK_APPLICATION(app), "win.flip-vertical", (const char *[]) { "<Primary><Shift>v", NULL });
   gtk_application_set_accels_for_action(GTK_APPLICATION(app), "app.quit", (const char *[]) { "<Primary>q", NULL });
 
-  g_signal_connect(app, "startup", G_CALLBACK(app_startup), NULL);
   g_signal_connect(app, "activate", G_CALLBACK(app_activate), NULL);
   g_signal_connect(app, "open", G_CALLBACK(app_open), NULL);
   g_signal_connect(app, "command-line", G_CALLBACK(app_command_line), NULL);

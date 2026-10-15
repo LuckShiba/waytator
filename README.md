@@ -72,7 +72,7 @@ OCR is included. For a smaller install without it, use `.default.override { with
 
 2) Required runtime dependencies:
 
-`wl-clipboard` for clipboard support - `adwaita-icon-theme` for icons (most distributions install it with `gtk4`)
+`wl-clipboard` for clipboard support
 
 3) Recommended runtime dependency:
 
