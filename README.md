@@ -2,7 +2,7 @@
 
 # waytator
 
-`waytator` is a screenshot annotator and lightweight image editor
+`waytator` is a one stop shot for screenshotting and recording on supported wlroots based compositor. It is also a lightweight image and video editor.
 
 Using niri or GNOME? See [Desktop-specific notes](#desktop-specific-notes).
 
