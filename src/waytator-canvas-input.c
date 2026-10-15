@@ -17,24 +17,6 @@ typedef struct {
 static void waytator_window_commit_blur_stroke(WaytatorWindow *self);
 static void waytator_window_discard_blur_stroke(WaytatorWindow *self);
 
-static void
-waytator_window_get_viewport_size(WaytatorWindow *self,
-                                  double         *width,
-                                  double         *height)
-{
-  GtkAdjustment *hadjustment = gtk_scrolled_window_get_hadjustment(self->canvas_scroller);
-  GtkAdjustment *vadjustment = gtk_scrolled_window_get_vadjustment(self->canvas_scroller);
-
-  *width = gtk_adjustment_get_page_size(hadjustment);
-  *height = gtk_adjustment_get_page_size(vadjustment);
-
-  if (*width <= 0)
-    *width = gtk_widget_get_width(GTK_WIDGET(self->canvas_scroller));
-
-  if (*height <= 0)
-    *height = gtk_widget_get_height(GTK_WIDGET(self->canvas_scroller));
-}
-
 static gboolean
 waytator_window_parse_shortcut_match(const char      *accelerator,
                                      guint            keyval,
@@ -437,21 +419,8 @@ waytator_window_apply_pinch_gesture(WaytatorWindow   *self,
                                     GtkGestureZoom   *gesture,
                                     double            scale)
 {
-  GtkAdjustment *hadjustment;
-  GtkAdjustment *vadjustment;
   double viewport_x;
   double viewport_y;
-  double viewport_width;
-  double viewport_height;
-  const int image_width = gdk_paintable_get_intrinsic_width(GDK_PAINTABLE(self->texture));
-  const int image_height = gdk_paintable_get_intrinsic_height(GDK_PAINTABLE(self->texture));
-  const double zoom = CLAMP(self->pinch_start_zoom * scale, WAYTATOR_MIN_ZOOM, WAYTATOR_MAX_ZOOM);
-  const double display_width = image_width * zoom;
-  const double display_height = image_height * zoom;
-  double widget_width;
-  double widget_height;
-  double display_x;
-  double display_y;
 
   if (self->texture == NULL)
     return;
@@ -465,22 +434,15 @@ waytator_window_apply_pinch_gesture(WaytatorWindow   *self,
     waytator_window_get_viewport_center(self, &viewport_x, &viewport_y);
 
   self->fit_mode = FALSE;
-  self->zoom = zoom;
+  self->opening_zoom = FALSE;
+  self->zoom = CLAMP(self->pinch_start_zoom * scale, WAYTATOR_MIN_ZOOM, WAYTATOR_MAX_ZOOM);
   waytator_window_apply_zoom_mode(self);
   waytator_window_update_zoom_label(self);
-
-  waytator_window_get_viewport_size(self, &viewport_width, &viewport_height);
-  widget_width = MAX(viewport_width, display_width);
-  widget_height = MAX(viewport_height, display_height);
-  display_x = MAX(0.0, (widget_width - display_width) / 2.0);
-  display_y = MAX(0.0, (widget_height - display_height) / 2.0);
-
-  hadjustment = gtk_scrolled_window_get_hadjustment(self->canvas_scroller);
-  vadjustment = gtk_scrolled_window_get_vadjustment(self->canvas_scroller);
-  waytator_window_set_adjustment_clamped(hadjustment,
-                                         display_x + self->pinch_anchor_rel_x * display_width - viewport_x);
-  waytator_window_set_adjustment_clamped(vadjustment,
-                                         display_y + self->pinch_anchor_rel_y * display_height - viewport_y);
+  waytator_window_scroll_image_point_to(self,
+                                        self->pinch_anchor_rel_x,
+                                        self->pinch_anchor_rel_y,
+                                        viewport_x,
+                                        viewport_y);
 }
 
 static gboolean
@@ -672,6 +634,24 @@ waytator_window_zoom_out_action(GtkWidget  *widget,
   waytator_window_set_zoom_at(self, zoom / WAYTATOR_ZOOM_STEP, center_x, center_y);
 }
 
+//back to the image's own size, about the pointer when it is over the image
+static void
+waytator_window_zoom_actual_size_action(GtkWidget  *widget,
+                                        const char *action_name,
+                                        GVariant   *parameter)
+{
+  WaytatorWindow *self = WAYTATOR_WINDOW(widget);
+  double center_x;
+  double center_y;
+
+  (void) action_name;
+  (void) parameter;
+
+  if (!waytator_window_get_pointer_viewport_position(self, &center_x, &center_y))
+    waytator_window_get_viewport_center(self, &center_x, &center_y);
+  waytator_window_set_zoom_at(self, 1.0, center_x, center_y);
+}
+
 static void
 waytator_window_zoom_fit_action(GtkWidget  *widget,
                                 const char *action_name,
@@ -680,7 +660,7 @@ waytator_window_zoom_fit_action(GtkWidget  *widget,
   (void) action_name;
   (void) parameter;
 
-  waytator_window_queue_fit_zoom(WAYTATOR_WINDOW(widget));
+  waytator_window_toggle_fit(WAYTATOR_WINDOW(widget));
   waytator_window_flash_zoom_readout(WAYTATOR_WINDOW(widget));
 }
 
@@ -1361,6 +1341,7 @@ waytator_window_install_canvas_actions(GtkWidgetClass *widget_class)
   gtk_widget_class_install_action(widget_class, "win.zoom-in", NULL, waytator_window_zoom_in_action);
   gtk_widget_class_install_action(widget_class, "win.zoom-out", NULL, waytator_window_zoom_out_action);
   gtk_widget_class_install_action(widget_class, "win.zoom-fit", NULL, waytator_window_zoom_fit_action);
+  gtk_widget_class_install_action(widget_class, "win.zoom-actual-size", NULL, waytator_window_zoom_actual_size_action);
 }
 
 static void

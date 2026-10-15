@@ -129,7 +129,7 @@ static const struct {
   [WAYTATOR_SHORTCUT_CAPTURE_AREA] = { "capture_area_shortcut", "capture-area", "Capture area", "win.capture-area", "<Primary><Shift>a" },
   [WAYTATOR_SHORTCUT_CAPTURE_SCREEN] = { "capture_screen_shortcut", "capture-screen", "Capture screen", "win.capture-screen", "<Primary><Shift>s" },
   [WAYTATOR_TOOL_SHORTCUT(WAYTATOR_TOOL_PAN)] = { "pan_tool_shortcut", NULL, "Pan", NULL, "p" },
-  [WAYTATOR_TOOL_SHORTCUT(WAYTATOR_TOOL_CROP)] = { "crop_tool_shortcut", NULL, "Crop", NULL, "c" },
+  [WAYTATOR_TOOL_SHORTCUT(WAYTATOR_TOOL_CROP)] = { "crop_tool_shortcut", NULL, "Transform", NULL, "c" },
   [WAYTATOR_TOOL_SHORTCUT(WAYTATOR_TOOL_BRUSH)] = { "brush_tool_shortcut", NULL, "Brush", NULL, "b" },
   [WAYTATOR_TOOL_SHORTCUT(WAYTATOR_TOOL_MARKER)] = { "highlighter_tool_shortcut", NULL, "Highlighter", NULL, "h" },
   [WAYTATOR_TOOL_SHORTCUT(WAYTATOR_TOOL_ERASER)] = { "eraser_tool_shortcut", NULL, "Eraser", NULL, "e" },
@@ -1995,7 +1995,6 @@ waytator_window_clear_ocr_results(WaytatorWindow *self)
   g_clear_pointer(&self->ocr_lines, g_ptr_array_unref);
   g_clear_pointer(&self->ocr_all_text, g_free);
   gtk_widget_set_visible(GTK_WIDGET(self->ocr_overlay), FALSE);
-  gtk_widget_set_visible(self->ocr_panel_toggle_container, FALSE);
   gtk_toggle_button_set_active(self->ocr_panel_toggle_button, FALSE);
   waytator_window_update_ocr_panel(self);
 }
@@ -2113,7 +2112,11 @@ waytator_window_update_ocr_panel(WaytatorWindow *self)
   const char *selected_text = NULL;
   const char *all_text = NULL;
 
-  gtk_widget_set_visible(self->ocr_panel_toggle_container, can_show_toggle);
+  if (gtk_widget_get_visible(self->ocr_panel_toggle_container) != can_show_toggle) {
+    gtk_widget_set_visible(self->ocr_panel_toggle_container, can_show_toggle);
+    //the options above the tools get wider with it
+    waytator_window_queue_chrome_layout(self);
+  }
 
   if (self->ocr_running && gtk_toggle_button_get_active(self->ocr_panel_toggle_button)) {
     selected_text = "Recognizing text...";
@@ -2374,6 +2377,8 @@ waytator_window_update_save_menu(WaytatorWindow *self)
 
   g_free(self->save_menu_key);
   self->save_menu_key = g_steal_pointer(&key);
+  //the menu button and the plain one need not be the same width
+  waytator_window_queue_chrome_layout(self);
   g_menu_remove_all(self->save_menu);
   if (to_folder) {
     g_autofree char *label = g_strdup_printf("Save to %s", folder);
@@ -3529,6 +3534,7 @@ waytator_window_clear_image(WaytatorWindow *self)
   waytator_window_mark_saved(self);
   gtk_picture_set_paintable(self->picture, NULL);
   self->fit_mode = TRUE;
+  self->opening_zoom = FALSE;
   waytator_window_update_picture_size(self);
   waytator_window_sync_state(self);
 }
@@ -3558,7 +3564,8 @@ waytator_window_set_image(WaytatorWindow *self,
 
   gtk_label_set_text(self->file_label, self->source_name);
   self->zoom = 1.0;
-  self->fit_mode = TRUE;
+  self->fit_mode = FALSE;
+  self->opening_zoom = TRUE;
   self->drawing = FALSE;
   self->current_stroke = NULL;
   self->ocr_running = FALSE;
@@ -3566,7 +3573,7 @@ waytator_window_set_image(WaytatorWindow *self,
   waytator_window_mark_saved(self);
 
   waytator_window_sync_state(self);
-  waytator_window_queue_fit_zoom(self);
+  waytator_window_queue_opening_zoom(self);
   gtk_widget_queue_draw(GTK_WIDGET(self->drawing_area));
 }
 
@@ -4386,7 +4393,6 @@ waytator_window_dispose(GObject *object)
   g_clear_handle_id(&self->zoom_osd_timeout_id, g_source_remove);
   g_clear_object(&self->app_menu);
   g_clear_object(&self->zoom_menu_row);
-  g_clear_object(&self->capture_menu);
   g_clear_pointer(&self->app_menu_key, g_free);
   waytator_settings_clear(&self->settings);
   waytator_window_clear_history(self);
@@ -4458,13 +4464,14 @@ waytator_window_bind_template_children(GtkWidgetClass *widget_class)
   gtk_widget_class_bind_template_child(widget_class, WaytatorWindow, options_row);
   gtk_widget_class_bind_template_child(widget_class, WaytatorWindow, chrome_watcher);
   gtk_widget_class_bind_template_child(widget_class, WaytatorWindow, open_label_button);
-  gtk_widget_class_bind_template_child(widget_class, WaytatorWindow, open_icon_button);
+  gtk_widget_class_bind_template_child(widget_class, WaytatorWindow, open_menu_button);
   gtk_widget_class_bind_template_child(widget_class, WaytatorWindow, open_separator);
   gtk_widget_class_bind_template_child(widget_class, WaytatorWindow, crop_actions);
   gtk_widget_class_bind_template_child(widget_class, WaytatorWindow, zoom_out_button);
   gtk_widget_class_bind_template_child(widget_class, WaytatorWindow, zoom_in_button);
-  gtk_widget_class_bind_template_child(widget_class, WaytatorWindow, zoom_chip);
-  gtk_widget_class_bind_template_child(widget_class, WaytatorWindow, zoom_chip_label);
+  gtk_widget_class_bind_template_child(widget_class, WaytatorWindow, zoom_drawer);
+  gtk_widget_class_bind_template_child(widget_class, WaytatorWindow, zoom_drawer_button);
+  gtk_widget_class_bind_template_child(widget_class, WaytatorWindow, zoom_drawer_fit_button);
   gtk_widget_class_bind_template_child(widget_class, WaytatorWindow, zoom_osd);
   gtk_widget_class_bind_template_child(widget_class, WaytatorWindow, tool_group);
   gtk_widget_class_bind_template_child(widget_class, WaytatorWindow, pan_tool_button);
@@ -4552,13 +4559,12 @@ waytator_window_init_state(WaytatorWindow *self)
   self->fit_mode = TRUE;
   //nothing folded until the window has a size to fold for
   self->folds = (WaytatorChromeFolds) {
-    .open = WAYTATOR_OPEN_LABEL,
-    .capture = TRUE,
     .title = TRUE,
     .zoom = WAYTATOR_ZOOM_FULL,
     .save = TRUE,
     .keep_open = TRUE,
   };
+  self->chrome_widths_stale = TRUE;
   self->active_tool = WAYTATOR_TOOL_BRUSH;
   self->drawing = FALSE;
   self->document = waytator_document_new();
@@ -4736,6 +4742,8 @@ waytator_window_setup_capture_delay(WaytatorWindow *self)
                                                                  g_variant_new_uint32(0));
   g_autoptr(GMenu) menu = g_menu_new();
   g_autoptr(GMenu) section = g_menu_new();
+  g_autoptr(GMenu) open_menu = g_menu_new();
+  g_autoptr(GMenu) open_section = g_menu_new();
 
   for (guint i = 0; i < G_N_ELEMENTS(delays); i++) {
     g_autofree char *label = delays[i] == 0
@@ -4750,11 +4758,15 @@ waytator_window_setup_capture_delay(WaytatorWindow *self)
 
   g_signal_connect(action, "notify::state", G_CALLBACK(waytator_window_capture_delay_changed), self);
   g_action_map_add_action(G_ACTION_MAP(self), G_ACTION(action));
-  //the camera button's menu gets Open as well once the Open button no longer fits
-  self->capture_menu = g_menu_new();
-  g_menu_append_section(self->capture_menu, "Delay", G_MENU_MODEL(section));
-  gtk_menu_button_set_menu_model(self->capture_delay_button, G_MENU_MODEL(self->capture_menu));
+  gtk_menu_button_set_menu_model(self->capture_delay_button, G_MENU_MODEL(menu));
   gtk_menu_button_set_menu_model(self->home_delay_button, G_MENU_MODEL(menu));
+  //what the Open and capture buttons do, for when the bar is too short for them
+  g_menu_append(open_section, "Open image…", "win.open");
+  g_menu_append(open_section, "Capture area", "win.capture-area");
+  g_menu_append_section(open_menu, NULL, G_MENU_MODEL(open_section));
+  g_menu_append_section(open_menu, "Delay", G_MENU_MODEL(section));
+  gtk_menu_button_set_menu_model(self->open_menu_button, G_MENU_MODEL(open_menu));
+  waytator_window_setup_menu_button_popover(self->open_menu_button, GTK_ARROW_DOWN, GTK_POS_BOTTOM);
   waytator_window_capture_delay_changed(action, NULL, self);
 }
 
@@ -4777,9 +4789,6 @@ waytator_window_setup_popovers(WaytatorWindow *self)
                                             GTK_ARROW_UP,
                                             GTK_POS_TOP);
   waytator_window_setup_menu_button_popover(self->save_button,
-                                            GTK_ARROW_DOWN,
-                                            GTK_POS_BOTTOM);
-  waytator_window_setup_menu_button_popover(self->app_menu_button,
                                             GTK_ARROW_DOWN,
                                             GTK_POS_BOTTOM);
   waytator_window_setup_menu_button_popover(self->file_button,

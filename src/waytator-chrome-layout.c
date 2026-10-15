@@ -1,5 +1,7 @@
 #include "waytator-window-private.h"
 
+#include <string.h>
+
 //the floating controls fit any window from a phone up: they measure what they need and give up room in a
 //fixed order, the least needed while editing first. the tools sit in a dock at the bottom with their options
 //right above
@@ -10,12 +12,8 @@
 #define WAYTATOR_CHROME_GAP_TIGHT 6
 #define WAYTATOR_CHROME_TOOL_GAP 4
 #define WAYTATOR_CHROME_TOOL_GAP_TIGHT 2
-//between the controls and the fitted image
-#define WAYTATOR_CHROME_CLEARANCE 8
 //a title narrower than this says too little to be worth the space
 #define WAYTATOR_TITLE_MIN_WIDTH 180
-//below this, Open gives way if that makes room for the title
-#define WAYTATOR_TITLE_COMFY_WIDTH 220
 
 static int
 waytator_chrome_width(GtkWidget *widget)
@@ -29,16 +27,67 @@ waytator_chrome_width(GtkWidget *widget)
   return natural;
 }
 
-static int
-waytator_chrome_height(GtkWidget *widget)
+static void waytator_chrome_apply(WaytatorWindow            *self,
+                                  const WaytatorChromeFolds *folds);
+
+//what each way of folding needs only changes with what the bars hold, so a resize measures nothing new
+static void
+waytator_chrome_bar_widths(WaytatorWindow            *self,
+                           const WaytatorChromeFolds *folds,
+                           int                       *start,
+                           int                       *end)
 {
-  int natural = 0;
+  const guint i = folds->tight | folds->open_menu << 1 | folds->save << 2 | folds->keep_open << 3;
 
-  if (!gtk_widget_get_visible(widget))
-    return 0;
+  if (self->chrome_widths.start[i] < 0) {
+    waytator_chrome_apply(self, folds);
+    self->chrome_widths.start[i] = waytator_chrome_width(self->start_actions);
+    self->chrome_widths.end[i] = waytator_chrome_width(self->end_actions);
+  }
+  *start = self->chrome_widths.start[i];
+  *end = self->chrome_widths.end[i];
+}
 
-  gtk_widget_measure(widget, GTK_ORIENTATION_VERTICAL, -1, NULL, &natural, NULL, NULL);
-  return natural;
+static int
+waytator_chrome_zoom_width(WaytatorWindow   *self,
+                           WaytatorZoomFold  zoom)
+{
+  if (self->chrome_widths.zoom[zoom] < 0) {
+    WaytatorChromeFolds folds = self->folds;
+
+    folds.zoom = zoom;
+    waytator_chrome_apply(self, &folds);
+    self->chrome_widths.zoom[zoom] = waytator_chrome_width(self->zoom_group);
+  }
+  return self->chrome_widths.zoom[zoom];
+}
+
+//the tools and the options above them, whichever is wider
+static int
+waytator_chrome_dock_width(WaytatorWindow *self)
+{
+  if (self->chrome_widths.dock < 0) {
+    WaytatorChromeFolds folds = self->folds;
+
+    folds.tight = FALSE;
+    waytator_chrome_apply(self, &folds);
+    self->chrome_widths.dock = waytator_chrome_width(self->dock_box);
+  }
+  return self->chrome_widths.dock;
+}
+
+static int
+waytator_chrome_title_width(WaytatorWindow *self)
+{
+  if (self->chrome_widths.title < 0) {
+    WaytatorChromeFolds folds = self->folds;
+
+    folds.title = TRUE;
+    folds.tight = FALSE;
+    waytator_chrome_apply(self, &folds);
+    self->chrome_widths.title = waytator_chrome_width(self->file_group) - 2 * WAYTATOR_CHROME_GAP;
+  }
+  return self->chrome_widths.title;
 }
 
 static void
@@ -52,17 +101,21 @@ waytator_chrome_apply(WaytatorWindow            *self,
 
   self->folds = *folds;
 
-  gtk_widget_set_visible(self->open_actions, has_image && folds->capture);
-  gtk_widget_set_visible(self->open_label_button, folds->open == WAYTATOR_OPEN_LABEL);
-  gtk_widget_set_visible(self->open_icon_button, folds->open == WAYTATOR_OPEN_ICON);
-  gtk_widget_set_visible(self->open_separator, folds->open != WAYTATOR_OPEN_FOLDED);
+  //Open and capture are either all there or all in one menu, nothing in between
+  gtk_widget_set_visible(self->open_actions, has_image);
+  gtk_widget_set_visible(self->open_label_button, !folds->open_menu);
+  gtk_widget_set_visible(self->open_separator, !folds->open_menu);
+  gtk_widget_set_visible(GTK_WIDGET(self->capture_button), !folds->open_menu);
+  gtk_widget_set_visible(GTK_WIDGET(self->capture_delay_button), !folds->open_menu);
+  gtk_widget_set_visible(GTK_WIDGET(self->open_menu_button), folds->open_menu);
   gtk_widget_set_visible(self->file_group, has_image && folds->title);
   gtk_widget_set_visible(self->zoom_group, has_image && folds->zoom != WAYTATOR_ZOOM_MENU);
   gtk_widget_set_visible(self->zoom_out_button, full_zoom);
-  gtk_widget_set_visible(GTK_WIDGET(self->zoom_label), full_zoom);
   gtk_widget_set_visible(self->zoom_in_button, full_zoom);
   gtk_widget_set_visible(GTK_WIDGET(self->fit_zoom_button), full_zoom);
-  gtk_widget_set_visible(GTK_WIDGET(self->zoom_chip), folds->zoom == WAYTATOR_ZOOM_CHIP);
+  //folded down to the level, the rest of the zoom controls slide up out of the pill
+  gtk_widget_set_visible(GTK_WIDGET(self->zoom_drawer), folds->zoom == WAYTATOR_ZOOM_CHIP);
+  gtk_widget_set_visible(GTK_WIDGET(self->zoom_drawer_button), folds->zoom == WAYTATOR_ZOOM_CHIP);
   waytator_window_update_save_menu(self);
   gtk_widget_set_visible(GTK_WIDGET(self->copy_keep_open_button), waytator_window_closes_on_copy(self) && folds->keep_open);
 
@@ -77,146 +130,119 @@ waytator_chrome_apply(WaytatorWindow            *self,
   gtk_widget_set_margin_bottom(self->ocr_panel, margin);
   gtk_box_set_spacing(GTK_BOX(self->start_actions), gap);
   gtk_box_set_spacing(GTK_BOX(self->end_actions), gap);
+  //the centred title keeps the same gap to the pills either side of it, even while it is squeezed
+  gtk_widget_set_margin_start(self->file_group, gap);
+  gtk_widget_set_margin_end(self->file_group, gap);
   gtk_box_set_spacing(GTK_BOX(self->tool_group), folds->tight ? WAYTATOR_CHROME_TOOL_GAP_TIGHT : WAYTATOR_CHROME_TOOL_GAP);
 }
 
 static int
-waytator_chrome_title_room(WaytatorWindow *self,
-                           int             width)
+waytator_chrome_title_room(WaytatorWindow            *self,
+                           const WaytatorChromeFolds *folds,
+                           int                        width)
 {
-  const int start = waytator_chrome_width(self->start_actions);
-  const int end = waytator_chrome_width(self->end_actions);
+  int start;
+  int end;
 
+  waytator_chrome_bar_widths(self, folds, &start, &end);
   //the title is centred, so the wider side decides
   return width - 2 * MAX(start, end) - 2 * WAYTATOR_CHROME_GAP - 2 * WAYTATOR_CHROME_MARGIN;
 }
 
 static gboolean
-waytator_chrome_bar_fits(WaytatorWindow *self,
-                         int             width)
+waytator_chrome_bar_fits(WaytatorWindow            *self,
+                         const WaytatorChromeFolds *folds,
+                         int                        width)
 {
-  const int margin = self->folds.tight ? WAYTATOR_CHROME_MARGIN_TIGHT : WAYTATOR_CHROME_MARGIN;
-  const int gap = self->folds.tight ? WAYTATOR_CHROME_GAP_TIGHT : WAYTATOR_CHROME_GAP;
+  const int margin = folds->tight ? WAYTATOR_CHROME_MARGIN_TIGHT : WAYTATOR_CHROME_MARGIN;
+  const int gap = folds->tight ? WAYTATOR_CHROME_GAP_TIGHT : WAYTATOR_CHROME_GAP;
+  int start;
+  int end;
 
-  return waytator_chrome_width(self->start_actions) + waytator_chrome_width(self->end_actions) + gap + 2 * margin <= width;
+  waytator_chrome_bar_widths(self, folds, &start, &end);
+  return start + end + gap + 2 * margin <= width;
 }
 
-static gboolean
+static void
 waytator_chrome_layout_main_menu(WaytatorWindow *self);
 
 static void
-waytator_chrome_update_insets(WaytatorWindow *self)
+waytator_chrome_fold(WaytatorWindow      *self,
+                     int                  width,
+                     WaytatorChromeFolds *folds)
 {
-  const int margin = self->folds.tight ? WAYTATOR_CHROME_MARGIN_TIGHT : WAYTATOR_CHROME_MARGIN;
-  const int top = margin + waytator_chrome_height(self->top_bar) + WAYTATOR_CHROME_CLEARANCE;
-  const int bottom = margin + waytator_chrome_height(self->bottom_bar) + WAYTATOR_CHROME_CLEARANCE;
+  const int dock = waytator_chrome_dock_width(self);
 
-  if (top == self->inset_top && bottom == self->inset_bottom)
+  //zoom keeps its full controls while they fit beside the dock
+  if (dock + 2 * (waytator_chrome_zoom_width(self, WAYTATOR_ZOOM_FULL) + WAYTATOR_CHROME_GAP) + 2 * WAYTATOR_CHROME_MARGIN <= width)
+    folds->zoom = WAYTATOR_ZOOM_FULL;
+  else if (dock + 2 * (waytator_chrome_zoom_width(self, WAYTATOR_ZOOM_CHIP) + WAYTATOR_CHROME_GAP) + 2 * WAYTATOR_CHROME_MARGIN <= width)
+    folds->zoom = WAYTATOR_ZOOM_CHIP;
+  else
+    folds->zoom = WAYTATOR_ZOOM_MENU;
+
+  //the dock only ever needs the tighter spacing
+  if (dock + 2 * WAYTATOR_CHROME_MARGIN > width)
+    folds->tight = TRUE;
+
+  //the title shrinks first and the rest of the bar holds still until it is gone. a short one goes once it no
+  //longer fits whole
+  if (waytator_chrome_title_room(self, folds, width) >= MIN(waytator_chrome_title_width(self), WAYTATOR_TITLE_MIN_WIDTH))
     return;
+  folds->title = FALSE;
 
-  self->inset_top = top;
-  self->inset_bottom = bottom;
-  if (self->texture != NULL && self->fit_mode) {
-    waytator_window_apply_zoom_mode(self);
-    waytator_window_update_zoom_label(self);
+  //without a title the bar still has to fit: Open and capture fold into one menu first, then the spacing
+  //tightens, then Save goes, then the second copy button
+  for (int step = 0; step < 4 && !waytator_chrome_bar_fits(self, folds, width); step++) {
+    switch (step) {
+    case 0:
+      folds->open_menu = TRUE;
+      break;
+    case 1:
+      folds->tight = TRUE;
+      break;
+    case 2:
+      folds->save = FALSE;
+      break;
+    default:
+      folds->keep_open = FALSE;
+      break;
+    }
   }
 }
 
-void
-waytator_window_update_chrome_layout(WaytatorWindow *self)
+static void
+waytator_chrome_relayout(WaytatorWindow *self)
 {
-  const int width = self->chrome_width;
   WaytatorChromeFolds folds = {
-    .open = WAYTATOR_OPEN_LABEL,
-    .capture = TRUE,
     .title = TRUE,
     .zoom = WAYTATOR_ZOOM_FULL,
     .save = TRUE,
     .keep_open = TRUE,
   };
-  int dock;
-  int zoom_full;
-  int zoom_chip;
-  int room;
 
   g_clear_handle_id(&self->chrome_layout_id, g_source_remove);
 
-  if (width <= 0 || self->texture == NULL) {
-    waytator_chrome_apply(self, &folds);
-    waytator_chrome_layout_main_menu(self);
-    return;
+  if (self->chrome_widths_stale) {
+    memset(&self->chrome_widths, 0xff, sizeof self->chrome_widths);
+    self->chrome_widths_stale = FALSE;
   }
+
+  if (self->chrome_width > 0 && self->texture != NULL)
+    waytator_chrome_fold(self, self->chrome_width, &folds);
 
   waytator_chrome_apply(self, &folds);
-
-  //zoom keeps its full controls while they fit beside the tool dock
-  dock = waytator_chrome_width(self->tool_group);
-  zoom_full = waytator_chrome_width(self->zoom_group);
-  folds.zoom = WAYTATOR_ZOOM_CHIP;
-  waytator_chrome_apply(self, &folds);
-  zoom_chip = waytator_chrome_width(self->zoom_group);
-  if (dock + 2 * (zoom_full + WAYTATOR_CHROME_GAP) + 2 * WAYTATOR_CHROME_MARGIN <= width)
-    folds.zoom = WAYTATOR_ZOOM_FULL;
-  else if (dock + 2 * (zoom_chip + WAYTATOR_CHROME_GAP) + 2 * WAYTATOR_CHROME_MARGIN > width)
-    folds.zoom = WAYTATOR_ZOOM_MENU;
-  waytator_chrome_apply(self, &folds);
-
-  //Open gives way for the title, but only while that actually frees room for it
-  room = waytator_chrome_title_room(self, width);
-  for (WaytatorOpenFold to = WAYTATOR_OPEN_ICON; to <= WAYTATOR_OPEN_FOLDED && room < WAYTATOR_TITLE_COMFY_WIDTH; to++) {
-    const WaytatorOpenFold before = folds.open;
-    int folded_room;
-
-    folds.open = to;
-    waytator_chrome_apply(self, &folds);
-    folded_room = waytator_chrome_title_room(self, width);
-    if (folded_room <= room) {
-      folds.open = before;
-      waytator_chrome_apply(self, &folds);
-      break;
-    }
-    room = folded_room;
-  }
-  if (room < WAYTATOR_TITLE_MIN_WIDTH) {
-    folds.title = FALSE;
-    waytator_chrome_apply(self, &folds);
-  }
-
-  //the dock only ever needs the tighter spacing
-  if (dock + 2 * WAYTATOR_CHROME_MARGIN > width) {
-    folds.tight = TRUE;
-    waytator_chrome_apply(self, &folds);
-  }
-
-  //without a title the bar still has to fit: starting a new capture goes first, then Save, then the second copy
-  //button, before either of which Open and the spacing give way
-  for (int step = 0; step < 6 && !waytator_chrome_bar_fits(self, width); step++) {
-    switch (step) {
-    case 0:
-      if (folds.open == WAYTATOR_OPEN_LABEL)
-        folds.open = WAYTATOR_OPEN_ICON;
-      break;
-    case 1:
-      folds.open = WAYTATOR_OPEN_FOLDED;
-      break;
-    case 2:
-      folds.tight = TRUE;
-      break;
-    case 3:
-      folds.capture = FALSE;
-      break;
-    case 4:
-      folds.save = FALSE;
-      break;
-    default:
-      folds.keep_open = FALSE;
-      break;
-    }
-    waytator_chrome_apply(self, &folds);
-  }
-
+  //a drawer left open would be waiting there the next time the pill folds
+  if (folds.zoom != WAYTATOR_ZOOM_CHIP)
+    gtk_toggle_button_set_active(self->zoom_drawer_button, FALSE);
   waytator_chrome_layout_main_menu(self);
-  waytator_chrome_update_insets(self);
+}
+
+void
+waytator_window_update_chrome_layout(WaytatorWindow *self)
+{
+  self->chrome_widths_stale = TRUE;
+  waytator_chrome_relayout(self);
 }
 
 static gboolean
@@ -225,18 +251,26 @@ waytator_chrome_layout_idle(gpointer user_data)
   WaytatorWindow *self = WAYTATOR_WINDOW(user_data);
 
   self->chrome_layout_id = 0;
-  waytator_window_update_chrome_layout(self);
+  waytator_chrome_relayout(self);
   return G_SOURCE_REMOVE;
 }
 
-void
-waytator_window_queue_chrome_layout(WaytatorWindow *self)
+static void
+waytator_chrome_queue_relayout(WaytatorWindow *self)
 {
   if (self->chrome_layout_id != 0 || self->disposed || self->top_bar == NULL)
     return;
 
   //never while sizes are being handed out, it changes what is being sized
   self->chrome_layout_id = g_idle_add_full(G_PRIORITY_HIGH_IDLE, waytator_chrome_layout_idle, self, NULL);
+}
+
+//for when what the bars hold has changed, rather than the window's size
+void
+waytator_window_queue_chrome_layout(WaytatorWindow *self)
+{
+  self->chrome_widths_stale = TRUE;
+  waytator_chrome_queue_relayout(self);
 }
 
 static void
@@ -248,29 +282,41 @@ waytator_chrome_watcher_resized(GtkDrawingArea *area,
   WaytatorWindow *self = WAYTATOR_WINDOW(user_data);
 
   (void) area;
+  (void) height;
 
-  if (width == self->chrome_width && height == self->chrome_height)
+  if (width == self->chrome_width)
     return;
 
   self->chrome_width = width;
-  self->chrome_height = height;
-  waytator_window_queue_chrome_layout(self);
+  waytator_chrome_queue_relayout(self);
+}
+
+static void
+waytator_chrome_zoom_drawer_toggled(GtkToggleButton *button,
+                                    gpointer         user_data)
+{
+  WaytatorWindow *self = WAYTATOR_WINDOW(user_data);
+  const gboolean open = gtk_toggle_button_get_active(button);
+
+  gtk_widget_set_tooltip_text(GTK_WIDGET(button), open ? "Hide zoom controls" : "Show zoom controls");
+  gtk_revealer_set_reveal_child(self->zoom_drawer, open);
 }
 
 //what no longer has a button of its own ends up in the main menu, next to Preferences and About
-static gboolean
+static void
 waytator_chrome_layout_main_menu(WaytatorWindow *self)
 {
   const WaytatorChromeFolds *folds = &self->folds;
+  const gboolean has_image = self->texture != NULL;
   const gboolean closes_on_copy = waytator_window_closes_on_copy(self);
   const gboolean file_section = !folds->title || !folds->save || (closes_on_copy && !folds->keep_open);
   const char *file_name = gtk_label_get_text(self->file_label);
-  g_autofree char *key = g_strdup_printf("%d%d%d%d%d%d%d:%s", folds->title, folds->save, folds->keep_open, folds->capture,
-                                         folds->zoom, folds->open, closes_on_copy, file_name);
+  g_autofree char *key = g_strdup_printf("%d%d%d%d%d%d:%s", has_image, folds->title, folds->save, folds->keep_open,
+                                         folds->zoom, closes_on_copy, file_name);
   g_autoptr(GMenu) common = g_menu_new();
 
   if (g_strcmp0(key, self->app_menu_key) == 0)
-    return FALSE;
+    return;
 
   g_free(self->app_menu_key);
   self->app_menu_key = g_steal_pointer(&key);
@@ -296,14 +342,6 @@ waytator_chrome_layout_main_menu(WaytatorWindow *self)
     g_menu_append_section(self->app_menu, heading, G_MENU_MODEL(section));
   }
 
-  if (!folds->capture) {
-    g_autoptr(GMenu) section = g_menu_new();
-
-    g_menu_append(section, "Capture area", "win.capture-area");
-    g_menu_append(section, "Open image…", "win.open");
-    g_menu_append_section(self->app_menu, NULL, G_MENU_MODEL(section));
-  }
-
   if (folds->zoom == WAYTATOR_ZOOM_MENU) {
     g_autoptr(GMenu) section = g_menu_new();
     g_autoptr(GMenuItem) row = g_menu_item_new(NULL, NULL);
@@ -325,17 +363,6 @@ waytator_chrome_layout_main_menu(WaytatorWindow *self)
       gtk_popover_menu_remove_child(popover, self->zoom_menu_row);
     gtk_popover_menu_add_child(popover, self->zoom_menu_row, "zoom-row");
   }
-
-  //Open goes into the camera button's menu once its own button is gone
-  if (g_menu_model_get_n_items(G_MENU_MODEL(self->capture_menu)) > 1)
-    g_menu_remove(self->capture_menu, 0);
-  if (folds->open == WAYTATOR_OPEN_FOLDED) {
-    g_autoptr(GMenu) section = g_menu_new();
-
-    g_menu_append(section, "Open image…", "win.open");
-    g_menu_prepend_section(self->capture_menu, NULL, G_MENU_MODEL(section));
-  }
-  return TRUE;
 }
 
 static GtkWidget *
@@ -346,6 +373,7 @@ waytator_chrome_zoom_row(GtkLabel **label)
   GtkWidget *zoom_in = gtk_button_new_from_icon_name("zoom-in-symbolic");
   GtkWidget *fit = gtk_button_new_with_label("Fit");
   GtkWidget *value = gtk_label_new("100%");
+  GtkWidget *level = gtk_button_new();
 
   gtk_widget_add_css_class(row, "zoom-row");
   gtk_actionable_set_action_name(GTK_ACTIONABLE(zoom_out), "win.zoom-out");
@@ -355,11 +383,15 @@ waytator_chrome_zoom_row(GtkLabel **label)
   gtk_widget_set_tooltip_text(zoom_in, "Zoom in");
   gtk_widget_set_tooltip_text(fit, "Fit image to window");
   gtk_widget_add_css_class(value, "zoom-label");
-  gtk_label_set_width_chars(GTK_LABEL(value), 5);
-  for (GtkWidget *button = zoom_out; button != NULL; button = button == zoom_out ? zoom_in : button == zoom_in ? fit : NULL)
+  gtk_label_set_width_chars(GTK_LABEL(value), 4);
+  gtk_button_set_child(GTK_BUTTON(level), value);
+  gtk_actionable_set_action_name(GTK_ACTIONABLE(level), "win.zoom-actual-size");
+  gtk_widget_set_tooltip_text(level, "Reset zoom to 100%");
+  gtk_widget_add_css_class(level, "zoom-level");
+  for (GtkWidget *button = zoom_out; button != NULL; button = button == zoom_out ? level : button == level ? zoom_in : button == zoom_in ? fit : NULL)
     gtk_widget_add_css_class(button, "flat");
   gtk_box_append(GTK_BOX(row), zoom_out);
-  gtk_box_append(GTK_BOX(row), value);
+  gtk_box_append(GTK_BOX(row), level);
   gtk_box_append(GTK_BOX(row), zoom_in);
   gtk_box_append(GTK_BOX(row), fit);
   *label = GTK_LABEL(value);
@@ -391,22 +423,17 @@ waytator_window_flash_zoom_readout(WaytatorWindow *self)
 void
 waytator_window_setup_chrome_layout(WaytatorWindow *self)
 {
-  GtkWidget *popover = gtk_popover_new();
-  GtkWidget *app_popover;
-
-  //the chip keeps the zoom controls in a popover
-  gtk_popover_set_child(GTK_POPOVER(popover), waytator_chrome_zoom_row(&self->zoom_popover_label));
-  gtk_popover_set_has_arrow(GTK_POPOVER(popover), FALSE);
-  gtk_menu_button_set_popover(self->zoom_chip, popover);
+  GtkPopover *app_popover;
 
   self->app_menu = g_menu_new();
-  app_popover = gtk_popover_menu_new_from_model(G_MENU_MODEL(self->app_menu));
-  gtk_popover_set_has_arrow(GTK_POPOVER(app_popover), FALSE);
-  gtk_popover_set_position(GTK_POPOVER(app_popover), GTK_POS_BOTTOM);
+  gtk_menu_button_set_menu_model(self->app_menu_button, G_MENU_MODEL(self->app_menu));
+  app_popover = gtk_menu_button_get_popover(self->app_menu_button);
+  gtk_popover_set_has_arrow(app_popover, FALSE);
+  gtk_popover_set_position(app_popover, GTK_POS_BOTTOM);
   self->zoom_menu_row = g_object_ref_sink(waytator_chrome_zoom_row(&self->zoom_menu_label));
-  gtk_menu_button_set_popover(self->app_menu_button, app_popover);
 
   g_signal_connect(self->chrome_watcher, "resize", G_CALLBACK(waytator_chrome_watcher_resized), self);
+  g_signal_connect(self->zoom_drawer_button, "toggled", G_CALLBACK(waytator_chrome_zoom_drawer_toggled), self);
   waytator_window_update_zoom_label(self);
   waytator_window_update_chrome_layout(self);
 }

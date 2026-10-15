@@ -3,19 +3,6 @@
   <requires lib="gtk" version="4.0"/>
   <requires lib="Adw" version="1.0"/>
 
-  <menu id="app_menu_model">
-    <section>
-      <item>
-        <attribute name="label">Preferences</attribute>
-        <attribute name="action">win.preferences</attribute>
-      </item>
-      <item>
-        <attribute name="label">About Waytator</attribute>
-        <attribute name="action">win.about</attribute>
-      </item>
-    </section>
-  </menu>
-
   <menu id="file_menu_model">
     <section>
       <item>
@@ -334,14 +321,12 @@
                             </child>
 
                             <child>
-                              <object class="GtkButton" id="open_icon_button">
-                                <property name="action-name">win.open</property>
-                                <property name="icon-name">folder-open-symbolic</property>
-                                <property name="tooltip-text">Open image</property>
+                              <object class="GtkMenuButton" id="open_menu_button">
+                                <property name="icon-name">open-menu-symbolic</property>
+                                <property name="tooltip-text">Open or capture</property>
                                 <property name="visible">False</property>
                                 <style>
-                                  <class name="overlay-button"/>
-                                  <class name="capture-button"/>
+                                  <class name="open-menu-button"/>
                                 </style>
                               </object>
                             </child>
@@ -536,7 +521,6 @@
                               <object class="GtkMenuButton" id="app_menu_button">
                                 <property name="always-show-arrow">False</property>
                                 <property name="tooltip-text">More</property>
-                                <property name="menu-model">app_menu_model</property>
                                 <property name="child">
                                   <object class="GtkImage">
                                     <property name="icon-name">view-more-symbolic</property>
@@ -749,9 +733,17 @@
                               <object class="GtkBox" id="crop_actions">
                                 <property name="spacing">4</property>
                                 <property name="valign">center</property>
-        <child>
+                                <child>
+                                  <object class="GtkLabel">
+                                    <property name="label">Drag to crop</property>
+                                    <style>
+                                      <class name="crop-hint"/>
+                                    </style>
+                                  </object>
+                                </child>
+                                <child>
                                   <object class="GtkButton" id="rotate_counter_clockwise_button">
-                                    <property name="tooltip-text">Rotate counter clockwise</property>
+                                    <property name="tooltip-text">Rotate counter clockwise (Shift+Ctrl+R)</property>
                                     <property name="icon-name">waytator-rotate-counter-clockwise-symbolic</property>
                                     <property name="action-name">win.rotate-counter-clockwise</property>
                                     <style>
@@ -762,7 +754,7 @@
 
                                 <child>
                                   <object class="GtkButton" id="flip_horizontal_button">
-                                    <property name="tooltip-text">Flip horizontal</property>
+                                    <property name="tooltip-text">Flip horizontal (Shift+Ctrl+H)</property>
                                     <property name="icon-name">object-flip-horizontal-symbolic</property>
                                     <property name="action-name">win.flip-horizontal</property>
                                     <style>
@@ -773,7 +765,7 @@
 
                                 <child>
                                   <object class="GtkButton" id="flip_vertical_button">
-                                    <property name="tooltip-text">Flip vertical</property>
+                                    <property name="tooltip-text">Flip vertical (Shift+Ctrl+V)</property>
                                     <property name="icon-name">object-flip-vertical-symbolic</property>
                                     <property name="action-name">win.flip-vertical</property>
                                     <style>
@@ -848,7 +840,7 @@
                         <child>
                           <object class="GtkToggleButton" id="crop_tool_button">
                             <property name="group">brush_tool_button</property>
-                            <property name="tooltip-text">Crop</property>
+                            <property name="tooltip-text">Transform</property>
                             <property name="icon-name">waytator-crop-symbolic</property>
                             <style>
                               <class name="flat"/>
@@ -1046,7 +1038,7 @@
 
                     <child>
                       <object class="GtkBox" id="zoom_group">
-                        <property name="spacing">8</property>
+                        <property name="orientation">vertical</property>
                         <property name="sensitive">False</property>
                         <property name="valign">end</property>
                         <style>
@@ -1054,62 +1046,107 @@
                           <class name="zoom-group"/>
                         </style>
 
+                        <!-- the folded pill keeps the zoom buttons in here, they slide up out of it -->
                         <child>
-                          <object class="GtkButton" id="zoom_out_button">
-                            <property name="action-name">win.zoom-out</property>
-                            <property name="tooltip-text">Zoom out</property>
-                            <property name="icon-name">zoom-out-symbolic</property>
-                          </object>
-                        </child>
-
-                        <child>
-                          <object class="GtkLabel" id="zoom_label">
-                            <property name="label">100%</property>
-                            <style>
-                              <class name="zoom-label"/>
-                            </style>
-                          </object>
-                        </child>
-
-                        <child>
-                          <object class="GtkButton" id="zoom_in_button">
-                            <property name="action-name">win.zoom-in</property>
-                            <property name="tooltip-text">Zoom in</property>
-                            <property name="icon-name">zoom-in-symbolic</property>
-                          </object>
-                        </child>
-
-                        <child>
-                          <object class="GtkButton" id="fit_zoom_button">
-                            <property name="action-name">win.zoom-fit</property>
-                            <property name="tooltip-text">Fit image to window</property>
-                            <property name="label">Fit</property>
-                          </object>
-                        </child>
-
-                        <child>
-                          <object class="GtkMenuButton" id="zoom_chip">
-                            <property name="visible">False</property>
-                            <property name="tooltip-text">Zoom</property>
-                            <property name="direction">up</property>
+                          <object class="GtkRevealer" id="zoom_drawer">
+                            <property name="transition-type">slide-up</property>
+                            <property name="transition-duration">180</property>
                             <property name="child">
                               <object class="GtkBox">
-                                <property name="spacing">4</property>
+                                <property name="homogeneous">True</property>
+                                <style>
+                                  <class name="zoom-drawer"/>
+                                </style>
                                 <child>
-                                  <object class="GtkLabel" id="zoom_chip_label">
+                                  <object class="GtkButton">
+                                    <property name="action-name">win.zoom-out</property>
+                                    <property name="tooltip-text">Zoom out</property>
+                                    <property name="icon-name">zoom-out-symbolic</property>
+                                  </object>
+                                </child>
+                                <child>
+                                  <object class="GtkButton">
+                                    <property name="action-name">win.zoom-in</property>
+                                    <property name="tooltip-text">Zoom in</property>
+                                    <property name="icon-name">zoom-in-symbolic</property>
+                                  </object>
+                                </child>
+                                <child>
+                                  <object class="GtkButton" id="zoom_drawer_fit_button">
+                                    <property name="action-name">win.zoom-fit</property>
+                                    <property name="tooltip-text">Fit image to window</property>
+                                    <property name="label">Fit</property>
+                                    <style>
+                                      <class name="zoom-fit"/>
+                                    </style>
+                                  </object>
+                                </child>
+                              </object>
+                            </property>
+                          </object>
+                        </child>
+
+                        <child>
+                          <object class="GtkBox">
+                            <property name="spacing">8</property>
+
+                            <child>
+                              <object class="GtkButton" id="zoom_out_button">
+                                <property name="action-name">win.zoom-out</property>
+                                <property name="tooltip-text">Zoom out</property>
+                                <property name="icon-name">zoom-out-symbolic</property>
+                              </object>
+                            </child>
+
+                            <child>
+                              <object class="GtkButton" id="zoom_level_button">
+                                <property name="action-name">win.zoom-actual-size</property>
+                                <property name="tooltip-text">Reset zoom to 100%</property>
+                                <style>
+                                  <class name="zoom-level"/>
+                                </style>
+                                <property name="child">
+                                  <object class="GtkLabel" id="zoom_label">
+                                    <property name="width-chars">4</property>
                                     <property name="label">100%</property>
                                     <style>
                                       <class name="zoom-label"/>
                                     </style>
                                   </object>
-                                </child>
-                                <child>
-                                  <object class="GtkImage">
-                                    <property name="icon-name">pan-down-symbolic</property>
-                                  </object>
-                                </child>
+                                </property>
                               </object>
-                            </property>
+                            </child>
+
+                            <child>
+                              <object class="GtkButton" id="zoom_in_button">
+                                <property name="action-name">win.zoom-in</property>
+                                <property name="tooltip-text">Zoom in</property>
+                                <property name="icon-name">zoom-in-symbolic</property>
+                              </object>
+                            </child>
+
+                            <child>
+                              <object class="GtkButton" id="fit_zoom_button">
+                                <property name="action-name">win.zoom-fit</property>
+                                <property name="tooltip-text">Fit image to window</property>
+                                <property name="label">Fit</property>
+                                <style>
+                                  <class name="zoom-fit"/>
+                                </style>
+                              </object>
+                            </child>
+
+                            <child>
+                              <object class="GtkToggleButton" id="zoom_drawer_button">
+                                <property name="visible">False</property>
+                                <property name="icon-name">waytator-chevron-up-symbolic</property>
+                                <property name="focus-on-click">False</property>
+                                <property name="tooltip-text">Show zoom controls</property>
+                                <style>
+                                  <class name="zoom-drawer-toggle"/>
+                                </style>
+                              </object>
+                            </child>
                           </object>
                         </child>
                       </object>

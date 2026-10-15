@@ -7,13 +7,6 @@
 
 //how far the floating controls have folded to fit the window, see waytator-chrome-layout.c
 typedef enum {
-  WAYTATOR_OPEN_LABEL,
-  WAYTATOR_OPEN_ICON,
-  //in the camera button's menu
-  WAYTATOR_OPEN_FOLDED,
-} WaytatorOpenFold;
-
-typedef enum {
   WAYTATOR_ZOOM_FULL,
   WAYTATOR_ZOOM_CHIP,
   //in the main menu, with a readout over the image while zooming
@@ -21,14 +14,26 @@ typedef enum {
 } WaytatorZoomFold;
 
 typedef struct {
-  WaytatorOpenFold open;
-  gboolean capture;
+  //Open, capture and the delay as one menu button
+  gboolean open_menu;
   gboolean title;
   WaytatorZoomFold zoom;
   gboolean save;
   gboolean keep_open;
   gboolean tight;
 } WaytatorChromeFolds;
+
+//natural widths of the bars for each way of folding them, -1 until measured
+typedef struct {
+  //indexed by tight, open_menu, save and keep_open as bits
+  int start[16];
+  int end[16];
+  int zoom[3];
+  //the tools and the options above them, at the normal spacing
+  int dock;
+  //the title pill without the gaps either side of it
+  int title;
+} WaytatorChromeWidths;
 
 struct _WaytatorWindow {
   AdwApplicationWindow parent_instance;
@@ -64,19 +69,18 @@ struct _WaytatorWindow {
   GtkWidget *options_row;
   GtkWidget *chrome_watcher;
   GtkWidget *open_label_button;
-  GtkWidget *open_icon_button;
+  GtkMenuButton *open_menu_button;
   GtkWidget *open_separator;
   GtkWidget *crop_actions;
   GtkWidget *zoom_out_button;
   GtkWidget *zoom_in_button;
-  GtkMenuButton *zoom_chip;
-  GtkLabel *zoom_chip_label;
-  GtkLabel *zoom_popover_label;
+  GtkRevealer *zoom_drawer;
+  GtkToggleButton *zoom_drawer_button;
+  GtkWidget *zoom_drawer_fit_button;
   GtkLabel *zoom_menu_label;
   GtkWidget *zoom_menu_row;
   GtkLabel *zoom_osd;
   GMenu *app_menu;
-  GMenu *capture_menu;
   char *app_menu_key;
   GtkWidget *start_window_controls_pill;
   GtkWindowControls *start_window_controls;
@@ -165,6 +169,8 @@ struct _WaytatorWindow {
   WaytatorStroke *current_stroke;
   double zoom;
   gboolean fit_mode;
+  //a freshly opened image follows the window, no larger than its own size, until its zoom settles
+  gboolean opening_zoom;
   WaytatorTool active_tool;
   gboolean drawing;
   guint copy_feedback_timeout_id;
@@ -222,12 +228,10 @@ struct _WaytatorWindow {
   WaytatorWindowBackgroundMode window_background_mode;
   WaytatorChromeFolds folds;
   int chrome_width;
-  int chrome_height;
+  WaytatorChromeWidths chrome_widths;
+  gboolean chrome_widths_stale;
   guint chrome_layout_id;
   guint zoom_osd_timeout_id;
-  //room the floating controls take on each side, kept clear when the image is fitted
-  int inset_top;
-  int inset_bottom;
 
   gboolean updating_ui;
   gboolean size_drawer_open;
@@ -336,6 +340,14 @@ void waytator_window_apply_crop(WaytatorWindow *self,
                                 int             top,
                                 int             width,
                                 int             height);
+void waytator_window_scroll_image_point_to(WaytatorWindow *self,
+                                          double          rel_x,
+                                          double          rel_y,
+                                          double          viewport_x,
+                                          double          viewport_y);
+void waytator_window_queue_opening_zoom(WaytatorWindow *self);
+void waytator_window_toggle_fit(WaytatorWindow *self);
+void waytator_window_settle_opening_zoom(WaytatorWindow *self);
 void waytator_window_set_zoom_at(WaytatorWindow *self,
                                  double          zoom,
                                  double          viewport_x,

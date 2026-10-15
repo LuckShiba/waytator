@@ -672,7 +672,7 @@ waytator_window_update_tool_ui(WaytatorWindow *self)
     waytator_window_maybe_start_ocr(self);
   waytator_window_update_ocr_overlay(self);
   waytator_window_update_ocr_panel(self);
-  //the options bar can come and go, and the fitted image keeps clear of it
+  //the options above the tools change with the tool, and the dock with them
   waytator_window_queue_chrome_layout(self);
 }
 
