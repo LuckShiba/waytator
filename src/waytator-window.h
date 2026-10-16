@@ -2,6 +2,7 @@
 
 #include <adwaita.h>
 
+#include "waytator-capture.h"
 #include "waytator-types.h"
 
 G_BEGIN_DECLS
@@ -24,10 +25,12 @@ void waytator_window_open_capture(WaytatorWindow *self,
                                   gboolean        to_folder);
 gboolean waytator_window_is_empty(WaytatorWindow *self);
 WaytatorWindow *waytator_window_for_new_image(GtkApplication *app);
-void waytator_window_start_capture(WaytatorWindow     *self,
-                                   WaytatorCaptureMode mode,
-                                   const char         *output_name,
-                                   guint               delay_seconds);
+//takes early, which may be NULL, and lets it go if the capture has to wait for something after all
+void waytator_window_start_capture(WaytatorWindow       *self,
+                                   WaytatorCaptureMode   mode,
+                                   const char           *output_name,
+                                   guint                 delay_seconds,
+                                   WaytatorCaptureEarly *early);
 gboolean waytator_window_hide_all(GtkApplication *app,
                                   GPtrArray      *hidden);
 gboolean waytator_window_restore_all(GPtrArray *hidden);
