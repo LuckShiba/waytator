@@ -133,9 +133,20 @@
   box-shadow: none;
 }
 
-.zoom-group button:last-child {
+.zoom-group button.zoom-fit {
   min-width: 0;
   padding: 0 12px;
+}
+
+/* the level is a button too, it puts the zoom back to 100% */
+.zoom-group button.zoom-level,
+.zoom-row button.zoom-level {
+  min-width: 0;
+  padding: 0 6px;
+}
+
+.zoom-level .zoom-label {
+  margin: 0;
 }
 
 .tool-group togglebutton.flat:hover,
@@ -398,6 +409,23 @@
   background: alpha(white, 0.08);
 }
 
+/* Open, capture and the delay folded into one menu once the bar runs short */
+.open-group menubutton.open-menu-button > button {
+  min-width: 32px;
+  min-height: 32px;
+  padding: 0;
+  border-radius: 10px;
+  color: white;
+  background: transparent;
+  border-color: transparent;
+  box-shadow: none;
+}
+
+.open-group menubutton.open-menu-button > button:hover,
+.open-group menubutton.open-menu-button > button:checked {
+  background: alpha(white, 0.08);
+}
+
 /* a menu button shaped like the other home actions, its button is the part that shows */
 .home-actions menubutton.home-delay > button {
   min-height: 40px;
@@ -537,4 +565,77 @@
   color: alpha(white, 0.85);
   font-size: 0.85em;
   font-weight: 600;
+}
+
+/* cropping has no button of its own in the transform tool, a drag over the image does it */
+.crop-hint {
+  margin: 0 6px 0 10px;
+  color: alpha(white, 0.6);
+}
+
+/* folded down to its level, the zoom pill keeps the other buttons in a drawer that slides up out of it */
+.zoom-drawer {
+  padding-bottom: 4px;
+}
+
+/* as narrow as the folded pill, the three buttons share its width */
+.zoom-group .zoom-drawer button,
+.zoom-group .zoom-drawer button.zoom-fit {
+  min-width: 24px;
+  padding: 0 2px;
+}
+
+/* shaped like the size slider's chevron: up to open the drawer, down to put it away */
+.zoom-group button.zoom-drawer-toggle {
+  min-width: 28px;
+  color: alpha(white, 0.7);
+}
+
+.zoom-group button.zoom-drawer-toggle image {
+  transition: -gtk-icon-transform 180ms ease;
+}
+
+.zoom-group button.zoom-drawer-toggle:checked image {
+  -gtk-icon-transform: rotate(180deg);
+}
+
+.zoom-group button.zoom-drawer-toggle:checked {
+  color: white;
+  background: alpha(white, 0.16);
+}
+
+.zoom-row {
+  padding: 2px;
+}
+
+.zoom-row button {
+  min-width: 32px;
+  min-height: 32px;
+  border-radius: 10px;
+}
+
+.zoom-row button:last-child {
+  padding: 0 12px;
+}
+
+/* the row sits in a popover of a button on a dark pill, it takes the popover's colours rather than the pill's */
+popover .zoom-row button,
+popover .zoom-row .zoom-label {
+  color: inherit;
+}
+
+popover .zoom-row button:hover {
+  background: alpha(currentColor, 0.08);
+}
+
+popover .zoom-row button.selected-tool {
+  background: alpha(currentColor, 0.14);
+}
+
+/* the zoom level over the image while zooming, when zoom has folded into the main menu */
+.zoom-osd {
+  padding: 10px 18px;
+  font-size: 1.5em;
+  font-weight: 700;
+  font-feature-settings: "tnum";
 }

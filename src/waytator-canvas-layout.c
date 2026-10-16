@@ -38,54 +38,90 @@ waytator_window_get_fit_zoom(WaytatorWindow *self)
   if (texture_width <= 0 || texture_height <= 0)
     return 1.0;
 
+  //the floating controls are see-through, the image goes right to the window's edges under them
   waytator_window_get_viewport_size(self, &viewport_width, &viewport_height);
   if (viewport_width <= 0 || viewport_height <= 0)
     return 1.0;
 
-  return MIN(1.0,
-             MIN(viewport_width / texture_width,
-                 viewport_height / texture_height));
+  //fit fills the window, small images grow to it as well
+  return CLAMP(MIN(viewport_width / texture_width, viewport_height / texture_height),
+               WAYTATOR_MIN_ZOOM,
+               WAYTATOR_MAX_ZOOM);
 }
 
 void
 waytator_window_update_zoom_label(WaytatorWindow *self)
 {
-  if (self->texture != NULL && self->fit_mode)
-    gtk_widget_add_css_class(GTK_WIDGET(self->fit_zoom_button), "selected-tool");
-  else
-    gtk_widget_remove_css_class(GTK_WIDGET(self->fit_zoom_button), "selected-tool");
+  const gboolean fitted = self->texture != NULL && self->fit_mode;
+  g_autofree char *label = self->texture != NULL
+                         ? g_strdup_printf("%.0f%%", waytator_window_get_effective_zoom(self) * 100.0)
+                         : g_strdup("--");
 
-  if (self->texture == NULL) {
-    gtk_label_set_text(self->zoom_label, "--");
-    return;
+  //every Fit button shows whether fit is on: the pill's, its drawer's and the main menu's
+  for (guint i = 0; i < 3; i++) {
+    GtkWidget *fit = i == 0 ? GTK_WIDGET(self->fit_zoom_button)
+                   : i == 1 ? self->zoom_drawer_fit_button
+                   : self->zoom_menu_fit_button;
+
+    if (fit == NULL)
+      continue;
+    if (fitted)
+      gtk_widget_add_css_class(fit, "selected-tool");
+    else
+      gtk_widget_remove_css_class(fit, "selected-tool");
   }
 
-  g_autofree char *label = g_strdup_printf("%.0f%%", waytator_window_get_effective_zoom(self) * 100.0);
+  //the pill, the row in the main menu and the readout over the image all show it
   gtk_label_set_text(self->zoom_label, label);
+  if (self->zoom_menu_label != NULL)
+    gtk_label_set_text(self->zoom_menu_label, label);
+  gtk_label_set_text(self->zoom_osd, label);
 }
 
+//an image opens at its own size, or smaller when the window cannot hold it. that zoom settles once the window
+//first has a size, and is then left alone like any other until Fit is turned on
 static gboolean
-waytator_window_fit_zoom_idle(gpointer user_data)
+waytator_window_opening_zoom_idle(gpointer user_data)
 {
   WaytatorWindow *self = WAYTATOR_WINDOW(user_data);
   double viewport_width;
   double viewport_height;
 
-  if (self->texture == NULL)
+  if (self->texture == NULL || !self->opening_zoom)
     goto done;
 
   waytator_window_get_viewport_size(self, &viewport_width, &viewport_height);
   if (viewport_width <= 0 || viewport_height <= 0)
     return G_SOURCE_CONTINUE;
 
-  self->fit_mode = TRUE;
-  self->zoom = waytator_window_get_fit_zoom(self);
-  waytator_window_apply_zoom_mode(self);
-  waytator_window_update_zoom_label(self);
+  waytator_window_settle_opening_zoom(self);
 
 done:
   g_object_unref(self);
   return G_SOURCE_REMOVE;
+}
+
+void
+waytator_window_queue_opening_zoom(WaytatorWindow *self)
+{
+  self->opening_zoom = TRUE;
+  g_idle_add(waytator_window_opening_zoom_idle, g_object_ref(self));
+}
+
+//Fit off keeps the zoom it was at, the window can then be resized around it
+void
+waytator_window_toggle_fit(WaytatorWindow *self)
+{
+  if (self->texture == NULL)
+    return;
+
+  //right away rather than later, a second press straight after has to see the first one done
+  if (self->fit_mode)
+    self->zoom = waytator_window_get_fit_zoom(self);
+  self->fit_mode = !self->fit_mode;
+  self->opening_zoom = FALSE;
+  waytator_window_apply_zoom_mode(self);
+  waytator_window_update_zoom_label(self);
 }
 
 static void
@@ -98,7 +134,7 @@ waytator_window_canvas_size_changed(GObject    *object,
   (void) object;
   (void) pspec;
 
-  if (self->texture == NULL || !self->fit_mode)
+  if (self->texture == NULL || (!self->fit_mode && !self->opening_zoom))
     return;
 
   self->zoom = waytator_window_get_fit_zoom(self);
@@ -218,16 +254,11 @@ waytator_window_get_pointer_viewport_position(WaytatorWindow *self,
                                               double         *x,
                                               double         *y)
 {
-  GtkAdjustment *hadjustment;
-  GtkAdjustment *vadjustment;
-
   if (!self->pointer_in)
     return FALSE;
 
-  hadjustment = gtk_scrolled_window_get_hadjustment(self->canvas_scroller);
-  vadjustment = gtk_scrolled_window_get_vadjustment(self->canvas_scroller);
-  *x = self->pointer_widget_x - gtk_adjustment_get_value(hadjustment);
-  *y = self->pointer_widget_y - gtk_adjustment_get_value(vadjustment);
+  *x = self->pointer_viewport_x;
+  *y = self->pointer_viewport_y;
   return TRUE;
 }
 
@@ -250,7 +281,22 @@ waytator_window_get_effective_zoom(WaytatorWindow *self)
   if (self->texture == NULL)
     return 1.0;
 
-  return self->fit_mode ? waytator_window_get_fit_zoom(self) : self->zoom;
+  if (self->fit_mode)
+    return waytator_window_get_fit_zoom(self);
+  if (self->opening_zoom)
+    return MIN(1.0, waytator_window_get_fit_zoom(self));
+  return self->zoom;
+}
+
+//the zoom an image opened at becomes a zoom like any other
+void
+waytator_window_settle_opening_zoom(WaytatorWindow *self)
+{
+  if (!self->opening_zoom)
+    return;
+
+  self->zoom = waytator_window_get_effective_zoom(self);
+  self->opening_zoom = FALSE;
 }
 
 void
@@ -295,20 +341,62 @@ waytator_window_update_picture_size(WaytatorWindow *self)
   waytator_window_update_ocr_overlay(self);
 }
 
+//scrolls so that the point at rel_x, rel_y across the image, at the zoom just set, lands under viewport_x,
+//viewport_y. the viewport only learns the image's new size at the next layout, so the scroll range is worked out
+//ahead of it the way it will lay the image out, centred while it is smaller than the viewport
+void
+waytator_window_scroll_image_point_to(WaytatorWindow *self,
+                                      double          rel_x,
+                                      double          rel_y,
+                                      double          viewport_x,
+                                      double          viewport_y)
+{
+  GtkAdjustment *hadjustment = gtk_scrolled_window_get_hadjustment(self->canvas_scroller);
+  GtkAdjustment *vadjustment = gtk_scrolled_window_get_vadjustment(self->canvas_scroller);
+  const double zoom = waytator_window_get_effective_zoom(self);
+  const double display_width = MAX(1, lround(gdk_paintable_get_intrinsic_width(GDK_PAINTABLE(self->texture)) * zoom));
+  const double display_height = MAX(1, lround(gdk_paintable_get_intrinsic_height(GDK_PAINTABLE(self->texture)) * zoom));
+  double viewport_width;
+  double viewport_height;
+  double content_width;
+  double content_height;
+
+  waytator_window_get_viewport_size(self, &viewport_width, &viewport_height);
+  content_width = MAX(viewport_width, display_width);
+  content_height = MAX(viewport_height, display_height);
+
+  gtk_adjustment_set_upper(hadjustment, content_width);
+  gtk_adjustment_set_upper(vadjustment, content_height);
+  waytator_window_set_adjustment_clamped(hadjustment,
+                                         (content_width - display_width) / 2.0 + rel_x * display_width - viewport_x);
+  waytator_window_set_adjustment_clamped(vadjustment,
+                                         (content_height - display_height) / 2.0 + rel_y * display_height
+                                         - viewport_y);
+}
+
 void
 waytator_window_set_zoom_at(WaytatorWindow *self,
                             double          zoom,
                             double          viewport_x,
                             double          viewport_y)
 {
-  GtkAdjustment *hadjustment;
-  GtkAdjustment *vadjustment;
   const double fit_zoom = waytator_window_get_fit_zoom(self);
+  const graphene_point_t viewport_point = GRAPHENE_POINT_INIT(viewport_x, viewport_y);
+  graphene_point_t surface_point;
+  double widget_width;
+  double widget_height;
+  double display_x;
+  double display_y;
+  double display_width;
+  double display_height;
+  double rel_x = 0.5;
+  double rel_y = 0.5;
 
   if (self->texture == NULL)
     return;
 
   zoom = CLAMP(zoom, WAYTATOR_MIN_ZOOM, WAYTATOR_MAX_ZOOM);
+  waytator_window_settle_opening_zoom(self);
 
   if (self->fit_mode && fabs(zoom - fit_zoom) < 0.0001)
     return;
@@ -316,64 +404,23 @@ waytator_window_set_zoom_at(WaytatorWindow *self,
   if (!self->fit_mode && fabs(zoom - self->zoom) < 0.0001)
     return;
 
-  hadjustment = gtk_scrolled_window_get_hadjustment(self->canvas_scroller);
-  vadjustment = gtk_scrolled_window_get_vadjustment(self->canvas_scroller);
-
-  double old_scroll_x = gtk_adjustment_get_value(hadjustment);
-  double old_scroll_y = gtk_adjustment_get_value(vadjustment);
-
-  double old_widget_x = old_scroll_x + viewport_x;
-  double old_widget_y = old_scroll_y + viewport_y;
-
-  double widget_width = gtk_widget_get_width(self->canvas_surface);
-  double widget_height = gtk_widget_get_height(self->canvas_surface);
-
-  double old_display_x, old_display_y, old_display_width, old_display_height;
-  if (!waytator_window_get_display_rect(self, widget_width, widget_height,
-                                        &old_display_x, &old_display_y,
-                                        &old_display_width, &old_display_height)) {
-    old_display_x = old_display_y = 0;
-    old_display_width = widget_width;
-    old_display_height = widget_height;
+  //the point of the image under the anchor, wherever the image sits in the viewport
+  widget_width = gtk_widget_get_width(self->canvas_surface);
+  widget_height = gtk_widget_get_height(self->canvas_surface);
+  if (gtk_widget_compute_point(GTK_WIDGET(self->canvas_scroller), self->canvas_surface, &viewport_point, &surface_point)
+      && waytator_window_get_display_rect(self, widget_width, widget_height,
+                                          &display_x, &display_y,
+                                          &display_width, &display_height)) {
+    rel_x = (surface_point.x - display_x) / display_width;
+    rel_y = (surface_point.y - display_y) / display_height;
   }
-
-  double img_rel_x = old_display_width > 0 ? (old_widget_x - old_display_x) / old_display_width : 0.0;
-  double img_rel_y = old_display_height > 0 ? (old_widget_y - old_display_y) / old_display_height : 0.0;
 
   self->fit_mode = FALSE;
   self->zoom = zoom;
   waytator_window_apply_zoom_mode(self);
   waytator_window_update_zoom_label(self);
-
-  double viewport_width, viewport_height;
-  waytator_window_get_viewport_size(self, &viewport_width, &viewport_height);
-
-  const int image_width = gdk_paintable_get_intrinsic_width(GDK_PAINTABLE(self->texture));
-  const int image_height = gdk_paintable_get_intrinsic_height(GDK_PAINTABLE(self->texture));
-
-  double new_display_width = image_width * zoom;
-  double new_display_height = image_height * zoom;
-
-  double new_widget_width = MAX(viewport_width, new_display_width);
-  double new_widget_height = MAX(viewport_height, new_display_height);
-
-  double new_display_x = MAX(0.0, (new_widget_width - new_display_width) / 2.0);
-  double new_display_y = MAX(0.0, (new_widget_height - new_display_height) / 2.0);
-
-  double new_widget_x = new_display_x + img_rel_x * new_display_width;
-  double new_widget_y = new_display_y + img_rel_y * new_display_height;
-
-  double new_scroll_x = new_widget_x - viewport_x;
-  double new_scroll_y = new_widget_y - viewport_y;
-
-  waytator_window_set_adjustment_clamped(hadjustment, new_scroll_x);
-  waytator_window_set_adjustment_clamped(vadjustment, new_scroll_y);
-}
-
-void
-waytator_window_queue_fit_zoom(WaytatorWindow *self)
-{
-  g_idle_add(waytator_window_fit_zoom_idle, g_object_ref(self));
+  waytator_window_scroll_image_point_to(self, rel_x, rel_y, viewport_x, viewport_y);
+  waytator_window_flash_zoom_readout(self);
 }
 
 void
@@ -385,12 +432,9 @@ waytator_window_sync_state(WaytatorWindow *self)
 
   gtk_stack_set_visible_child(self->canvas_stack,
                               has_image ? GTK_WIDGET(self->canvas_scroller) : self->empty_page);
-  gtk_widget_set_visible(self->open_actions, has_image);
   gtk_widget_set_visible(self->tool_group, has_image);
   gtk_widget_set_visible(self->history_actions, has_image);
   gtk_widget_set_visible(self->document_actions, has_image);
-  gtk_widget_set_visible(self->file_group, has_image);
-  gtk_widget_set_visible(self->zoom_group, has_image);
   gtk_widget_set_visible(self->settings_group, has_image);
   gtk_widget_set_sensitive(self->tool_group, has_image);
   gtk_widget_set_sensitive(self->settings_group, has_image);
@@ -411,11 +455,13 @@ waytator_window_sync_state(WaytatorWindow *self)
     gtk_label_set_text(self->file_label, "no image loaded");
     waytator_window_update_zoom_label(self);
     waytator_window_update_tool_ui(self);
+    waytator_window_update_chrome_layout(self);
     return;
   }
 
   waytator_window_update_zoom_label(self);
   waytator_window_update_tool_ui(self);
+  waytator_window_update_chrome_layout(self);
 }
 
 void

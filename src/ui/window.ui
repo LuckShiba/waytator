@@ -3,19 +3,6 @@
   <requires lib="gtk" version="4.0"/>
   <requires lib="Adw" version="1.0"/>
 
-  <menu id="app_menu_model">
-    <section>
-      <item>
-        <attribute name="label">Preferences</attribute>
-        <attribute name="action">win.preferences</attribute>
-      </item>
-      <item>
-        <attribute name="label">About Waytator</attribute>
-        <attribute name="action">win.about</attribute>
-      </item>
-    </section>
-  </menu>
-
   <menu id="file_menu_model">
     <section>
       <item>
@@ -286,7 +273,7 @@
                 <property name="valign">start</property>
 
                 <property name="child">
-                  <object class="GtkCenterBox">
+                  <object class="GtkCenterBox" id="top_bar">
                     <property name="hexpand">True</property>
                     <property name="margin-start">16</property>
                     <property name="margin-end">16</property>
@@ -324,7 +311,7 @@
                               <class name="open-group"/>
                             </style>
                             <child>
-                              <object class="GtkButton">
+                              <object class="GtkButton" id="open_label_button">
                                 <property name="action-name">win.open</property>
                                 <property name="label">Open</property>
                                 <style>
@@ -334,7 +321,18 @@
                             </child>
 
                             <child>
-                              <object class="GtkSeparator">
+                              <object class="GtkMenuButton" id="open_menu_button">
+                                <property name="icon-name">open-menu-symbolic</property>
+                                <property name="tooltip-text">Open or capture</property>
+                                <property name="visible">False</property>
+                                <style>
+                                  <class name="open-menu-button"/>
+                                </style>
+                              </object>
+                            </child>
+
+                            <child>
+                              <object class="GtkSeparator" id="open_separator">
                                 <property name="orientation">vertical</property>
                                 <property name="margin-start">4</property>
                                 <property name="margin-end">4</property>
@@ -393,8 +391,434 @@
                     </property>
 
                     <property name="center-widget">
-                      <object class="GtkBox" id="tool_group">
+                      <object class="GtkBox" id="file_group">
+                    <property name="valign">center</property>
+                    <style>
+                      <class name="overlay-pill"/>
+                      <class name="overlay-readout"/>
+                    </style>
+
+                    <child>
+                      <object class="GtkMenuButton" id="file_button">
+                        <property name="direction">down</property>
+                        <property name="menu-model">file_menu_model</property>
+                        <property name="always-show-arrow">False</property>
+                        <property name="sensitive">False</property>
+                        <property name="child">
+                          <object class="GtkLabel" id="file_label">
+                            <property name="xalign">0</property>
+                            <property name="ellipsize">middle</property>
+                            <property name="max-width-chars">60</property>
+                          </object>
+                        </property>
+                      </object>
+                    </child>
+                  </object>
+                    </property>
+
+                    <property name="end-widget">
+                      <object class="GtkBox" id="end_actions">
                         <property name="valign">center</property>
+                        <property name="spacing">10</property>
+
+                        <child>
+                          <object class="GtkBox" id="document_actions">
+                            <property name="spacing">4</property>
+                            <style>
+                              <class name="overlay-pill"/>
+                              <class name="overlay-action-group"/>
+                            </style>
+
+                            <child>
+                              <object class="GtkButton" id="save_as_button">
+                                <property name="tooltip-text">Save</property>
+                                <property name="icon-name">document-save-symbolic</property>
+                                <property name="sensitive">False</property>
+                                <property name="visible">False</property>
+                              </object>
+                            </child>
+
+                            <child>
+                          <object class="GtkMenuButton" id="save_button">
+                            <property name="tooltip-text">Save</property>
+                            <property name="sensitive">False</property>
+                            <property name="direction">down</property>
+                            <property name="child">
+                              <object class="GtkStack" id="save_icon_stack">
+                                <property name="transition-type">crossfade</property>
+                                    <property name="transition-duration">160</property>
+
+                                    <child>
+                                      <object class="GtkImage" id="save_default_icon">
+                                        <property name="icon-name">document-save-symbolic</property>
+                                      </object>
+                                    </child>
+
+                                    <child>
+                                      <object class="GtkImage" id="save_working_icon">
+                                        <property name="icon-name">view-refresh-symbolic</property>
+                                        <style>
+                                          <class name="spinning-icon"/>
+                                        </style>
+                                      </object>
+                                    </child>
+
+                                    <child>
+                                      <object class="GtkImage" id="save_success_icon">
+                                        <property name="icon-name">object-select-symbolic</property>
+                                      </object>
+                                    </child>
+                                  </object>
+                                </property>
+                          </object>
+                        </child>
+
+                            <child>
+                              <object class="GtkButton" id="copy_button">
+                                <property name="tooltip-text">Copy</property>
+                                <property name="sensitive">False</property>
+                                <property name="child">
+                                  <object class="GtkStack" id="copy_icon_stack">
+                                    <property name="transition-type">crossfade</property>
+                                    <property name="transition-duration">160</property>
+
+                                    <child>
+                                      <object class="GtkImage" id="copy_default_icon">
+                                        <property name="icon-name">waytator-copy-symbolic</property>
+                                      </object>
+                                    </child>
+
+                                    <child>
+                                      <object class="GtkImage" id="copy_success_icon">
+                                        <property name="icon-name">object-select-symbolic</property>
+                                      </object>
+                                    </child>
+                                  </object>
+                                </property>
+                              </object>
+                            </child>
+
+                            <child>
+                              <object class="GtkButton" id="copy_keep_open_button">
+                                <property name="tooltip-text">Copy without closing</property>
+                                <property name="icon-name">waytator-copy-symbolic</property>
+                                <property name="sensitive">False</property>
+                                <property name="visible">False</property>
+                              </object>
+                            </child>
+                          </object>
+                        </child>
+
+                        <child>
+                          <object class="GtkBox" id="app_chrome_group">
+                            <property name="spacing">4</property>
+                            <style>
+                              <class name="overlay-pill"/>
+                              <class name="app-chrome-group"/>
+                            </style>
+
+                            <child>
+                              <object class="GtkMenuButton" id="app_menu_button">
+                                <property name="always-show-arrow">False</property>
+                                <property name="tooltip-text">More</property>
+                                <property name="child">
+                                  <object class="GtkImage">
+                                    <property name="icon-name">view-more-symbolic</property>
+                                  </object>
+                                </property>
+                                <style>
+                                  <class name="flat"/>
+                                </style>
+                              </object>
+                            </child>
+
+                            <child>
+                              <object class="GtkWindowControls" id="end_window_controls">
+                                <property name="side">end</property>
+                                <style>
+                                  <class name="overlay-window-controls"/>
+                                </style>
+                              </object>
+                            </child>
+                          </object>
+                        </child>
+                      </object>
+                    </property>
+                  </object>
+                </property>
+              </object>
+            </child>
+
+            <child type="overlay">
+              <object class="GtkCenterBox" id="bottom_bar">
+                <property name="halign">fill</property>
+                <property name="valign">end</property>
+                <property name="margin-start">16</property>
+                <property name="margin-end">16</property>
+                <property name="margin-bottom">16</property>
+
+
+                <property name="center-widget">
+                  <object class="GtkBox" id="dock_box">
+                    <property name="orientation">vertical</property>
+                    <property name="spacing">8</property>
+                    <property name="valign">end</property>
+                    <child>
+                  <object class="GtkBox" id="options_row">
+                    <property name="spacing">10</property>
+                    <property name="halign">center</property>
+                    <child>
+                      <object class="GtkBox" id="settings_group">
+                        <property name="orientation">vertical</property>
+                        <property name="sensitive">False</property>
+                        <property name="valign">end</property>
+                        <style>
+                          <class name="overlay-pill"/>
+                          <class name="settings-group"/>
+                        </style>
+                        <child>
+                          <object class="GtkRevealer" id="size_drawer">
+                            <property name="transition-type">slide-up</property>
+                            <property name="transition-duration">180</property>
+                            <property name="child">
+                              <object class="GtkScale" id="width_scale">
+                                <property name="orientation">horizontal</property>
+                                <property name="draw-value">False</property>
+                                <property name="round-digits">0</property>
+                                <property name="adjustment">
+                                  <object class="GtkAdjustment">
+                                    <property name="lower">1.0</property>
+                                    <property name="upper">100.0</property>
+                                    <property name="value">8.0</property>
+                                    <property name="step-increment">1.0</property>
+                                  </object>
+                                </property>
+                              </object>
+                            </property>
+                          </object>
+                        </child>
+                        <child>
+                          <object class="GtkBox">
+                            <property name="spacing">4</property>
+                            <child>
+                              <object class="GtkColorDialogButton" id="color_button">
+                                <property name="valign">center</property>
+                                <property name="tooltip-text">Stroke color</property>
+                                <property name="dialog">
+                                  <object class="GtkColorDialog"/>
+                                </property>
+                                <property name="rgba">rgba(245, 51, 71, 1.0)</property>
+                              </object>
+                            </child>
+                            <child>
+                              <object class="GtkColorDialogButton" id="fill_color_button">
+                                <property name="valign">center</property>
+                                <property name="tooltip-text">Fill color</property>
+                                <property name="dialog">
+                                  <object class="GtkColorDialog">
+                                    <property name="with-alpha">True</property>
+                                  </object>
+                                </property>
+                                <property name="rgba">rgba(245, 51, 71, 0.0)</property>
+                              </object>
+                            </child>
+                            <child>
+                              <object class="GtkDropDown" id="blur_type_dropdown">
+                                <property name="valign">center</property>
+                                <property name="model">
+                                  <object class="GtkStringList">
+                                    <items>
+                                      <item>Blur</item>
+                                      <item>Pixelate</item>
+                                    </items>
+                                  </object>
+                                </property>
+                              </object>
+                            </child>
+                            <child>
+                              <object class="GtkBox" id="size_presets">
+                                <property name="spacing">2</property>
+                                <property name="valign">center</property>
+                                <style>
+                                  <class name="size-presets"/>
+                                </style>
+                                <child>
+                                  <object class="GtkButton">
+                                    <property name="icon-name">waytator-stroke-thin-symbolic</property>
+                                    <property name="focus-on-click">False</property>
+                                    <style>
+                                      <class name="flat"/>
+                                    </style>
+                                  </object>
+                                </child>
+                                <child>
+                                  <object class="GtkButton">
+                                    <property name="icon-name">waytator-stroke-medium-symbolic</property>
+                                    <property name="focus-on-click">False</property>
+                                    <style>
+                                      <class name="flat"/>
+                                    </style>
+                                  </object>
+                                </child>
+                                <child>
+                                  <object class="GtkButton">
+                                    <property name="icon-name">waytator-stroke-thick-symbolic</property>
+                                    <property name="focus-on-click">False</property>
+                                    <style>
+                                      <class name="flat"/>
+                                    </style>
+                                  </object>
+                                </child>
+                              </object>
+                            </child>
+                            <child>
+                              <object class="GtkBox" id="size_readout">
+                                <property name="spacing">4</property>
+                                <property name="valign">center</property>
+                                <style>
+                                  <class name="size-readout"/>
+                                </style>
+                                <child>
+                                  <object class="GtkBox" id="size_value_box">
+                                    <property name="spacing">3</property>
+                                    <property name="tooltip-text">Drag to change, click to type</property>
+                                    <style>
+                                      <class name="size-value"/>
+                                    </style>
+                                    <child>
+                                      <object class="GtkStack" id="size_value_stack">
+                                        <property name="valign">center</property>
+                                        <child>
+                                          <object class="GtkLabel" id="size_value_label">
+                                            <property name="label">8</property>
+                                            <property name="width-chars">3</property>
+                                            <property name="max-width-chars">3</property>
+                                            <property name="xalign">1</property>
+                                          </object>
+                                        </child>
+                                        <child>
+                                          <object class="GtkText" id="size_value_entry">
+                                            <property name="width-chars">3</property>
+                                            <property name="max-width-chars">3</property>
+                                            <property name="max-length">3</property>
+                                            <property name="xalign">1</property>
+                                            <property name="input-purpose">digits</property>
+                                          </object>
+                                        </child>
+                                      </object>
+                                    </child>
+                                    <child>
+                                      <object class="GtkLabel">
+                                        <property name="label">px</property>
+                                        <style>
+                                          <class name="size-unit"/>
+                                        </style>
+                                      </object>
+                                    </child>
+                                  </object>
+                                </child>
+                                <child>
+                                  <object class="GtkToggleButton" id="size_drawer_button">
+                                    <property name="icon-name">waytator-chevron-up-symbolic</property>
+                                    <property name="focus-on-click">False</property>
+                                    <property name="tooltip-text">Show size slider</property>
+                                    <style>
+                                      <class name="flat"/>
+                                    </style>
+                                  </object>
+                                </child>
+                              </object>
+                            </child>
+                            <child>
+                              <object class="GtkBox" id="crop_actions">
+                                <property name="spacing">4</property>
+                                <property name="valign">center</property>
+                                <child>
+                                  <object class="GtkLabel">
+                                    <property name="label">Drag to crop</property>
+                                    <style>
+                                      <class name="crop-hint"/>
+                                    </style>
+                                  </object>
+                                </child>
+                                <child>
+                                  <object class="GtkButton" id="rotate_counter_clockwise_button">
+                                    <property name="tooltip-text">Rotate counter clockwise (Shift+Ctrl+R)</property>
+                                    <property name="icon-name">waytator-rotate-counter-clockwise-symbolic</property>
+                                    <property name="action-name">win.rotate-counter-clockwise</property>
+                                    <style>
+                                      <class name="flat"/>
+                                    </style>
+                                  </object>
+                                </child>
+
+                                <child>
+                                  <object class="GtkButton" id="flip_horizontal_button">
+                                    <property name="tooltip-text">Flip horizontal (Shift+Ctrl+H)</property>
+                                    <property name="icon-name">object-flip-horizontal-symbolic</property>
+                                    <property name="action-name">win.flip-horizontal</property>
+                                    <style>
+                                      <class name="flat"/>
+                                    </style>
+                                  </object>
+                                </child>
+
+                                <child>
+                                  <object class="GtkButton" id="flip_vertical_button">
+                                    <property name="tooltip-text">Flip vertical (Shift+Ctrl+V)</property>
+                                    <property name="icon-name">object-flip-vertical-symbolic</property>
+                                    <property name="action-name">win.flip-vertical</property>
+                                    <style>
+                                      <class name="flat"/>
+                                    </style>
+                                  </object>
+                                </child>
+                              </object>
+                            </child>
+                            <child>
+                              <object class="GtkSpinButton" id="text_size_spin">
+                                <property name="valign">center</property>
+                                <property name="adjustment">
+                                  <object class="GtkAdjustment">
+                                    <property name="lower">8.0</property>
+                                    <property name="upper">200.0</property>
+                                    <property name="value">24.0</property>
+                                    <property name="step-increment">1.0</property>
+                                  </object>
+                                </property>
+                              </object>
+                            </child>
+                          </object>
+                        </child>
+                      </object>
+                    </child>
+
+                    <child>
+                      <object class="GtkBox" id="ocr_panel_toggle_container">
+                        <property name="visible">False</property>
+                        <property name="valign">end</property>
+                        <style>
+                          <class name="overlay-pill"/>
+                          <class name="overlay-readout"/>
+                        </style>
+
+                        <child>
+                          <object class="GtkToggleButton" id="ocr_panel_toggle_button">
+                            <property name="tooltip-text">Show OCR text panel</property>
+                            <property name="label">OCR</property>
+                            <style>
+                              <class name="overlay-button"/>
+                            </style>
+                          </object>
+                        </child>
+                      </object>
+                    </child>
+                  </object>
+                    </child>
+
+                    <child>
+                      <object class="GtkBox" id="tool_group">
+                        <property name="halign">center</property>
                         <property name="spacing">4</property>
                         <property name="sensitive">False</property>
                         <style>
@@ -416,7 +840,7 @@
                         <child>
                           <object class="GtkToggleButton" id="crop_tool_button">
                             <property name="group">brush_tool_button</property>
-                            <property name="tooltip-text">Crop</property>
+                            <property name="tooltip-text">Transform</property>
                             <property name="icon-name">waytator-crop-symbolic</property>
                             <style>
                               <class name="flat"/>
@@ -602,419 +1026,6 @@
                           </object>
                         </child>
 
-                        <child>
-                          <object class="GtkSeparator">
-                            <property name="orientation">vertical</property>
-                            <property name="margin-start">4</property>
-                            <property name="margin-end">4</property>
-                          </object>
-                        </child>
-
-                        <child>
-                          <object class="GtkButton" id="rotate_counter_clockwise_button">
-                            <property name="tooltip-text">Rotate counter clockwise</property>
-                            <property name="icon-name">waytator-rotate-counter-clockwise-symbolic</property>
-                            <property name="action-name">win.rotate-counter-clockwise</property>
-                            <style>
-                              <class name="flat"/>
-                            </style>
-                          </object>
-                        </child>
-
-                        <child>
-                          <object class="GtkButton" id="flip_horizontal_button">
-                            <property name="tooltip-text">Flip horizontal</property>
-                            <property name="icon-name">object-flip-horizontal-symbolic</property>
-                            <property name="action-name">win.flip-horizontal</property>
-                            <style>
-                              <class name="flat"/>
-                            </style>
-                          </object>
-                        </child>
-
-                        <child>
-                          <object class="GtkButton" id="flip_vertical_button">
-                            <property name="tooltip-text">Flip vertical</property>
-                            <property name="icon-name">object-flip-vertical-symbolic</property>
-                            <property name="action-name">win.flip-vertical</property>
-                            <style>
-                              <class name="flat"/>
-                            </style>
-                          </object>
-                        </child>
-                      </object>
-                    </property>
-
-                    <property name="end-widget">
-                      <object class="GtkBox">
-                        <property name="valign">center</property>
-                        <property name="spacing">10</property>
-
-                        <child>
-                          <object class="GtkBox" id="document_actions">
-                            <property name="spacing">4</property>
-                            <style>
-                              <class name="overlay-pill"/>
-                              <class name="overlay-action-group"/>
-                            </style>
-
-                            <child>
-                              <object class="GtkButton" id="save_as_button">
-                                <property name="tooltip-text">Save</property>
-                                <property name="icon-name">document-save-symbolic</property>
-                                <property name="sensitive">False</property>
-                                <property name="visible">False</property>
-                              </object>
-                            </child>
-
-                            <child>
-                          <object class="GtkMenuButton" id="save_button">
-                            <property name="tooltip-text">Save</property>
-                            <property name="sensitive">False</property>
-                            <property name="direction">down</property>
-                            <property name="child">
-                              <object class="GtkStack" id="save_icon_stack">
-                                <property name="transition-type">crossfade</property>
-                                    <property name="transition-duration">160</property>
-
-                                    <child>
-                                      <object class="GtkImage" id="save_default_icon">
-                                        <property name="icon-name">document-save-symbolic</property>
-                                      </object>
-                                    </child>
-
-                                    <child>
-                                      <object class="GtkImage" id="save_working_icon">
-                                        <property name="icon-name">view-refresh-symbolic</property>
-                                        <style>
-                                          <class name="spinning-icon"/>
-                                        </style>
-                                      </object>
-                                    </child>
-
-                                    <child>
-                                      <object class="GtkImage" id="save_success_icon">
-                                        <property name="icon-name">object-select-symbolic</property>
-                                      </object>
-                                    </child>
-                                  </object>
-                                </property>
-                          </object>
-                        </child>
-
-                            <child>
-                              <object class="GtkButton" id="copy_button">
-                                <property name="tooltip-text">Copy</property>
-                                <property name="sensitive">False</property>
-                                <property name="child">
-                                  <object class="GtkStack" id="copy_icon_stack">
-                                    <property name="transition-type">crossfade</property>
-                                    <property name="transition-duration">160</property>
-
-                                    <child>
-                                      <object class="GtkImage" id="copy_default_icon">
-                                        <property name="icon-name">waytator-copy-symbolic</property>
-                                      </object>
-                                    </child>
-
-                                    <child>
-                                      <object class="GtkImage" id="copy_success_icon">
-                                        <property name="icon-name">object-select-symbolic</property>
-                                      </object>
-                                    </child>
-                                  </object>
-                                </property>
-                              </object>
-                            </child>
-
-                            <child>
-                              <object class="GtkButton" id="copy_keep_open_button">
-                                <property name="tooltip-text">Copy without closing</property>
-                                <property name="icon-name">waytator-copy-symbolic</property>
-                                <property name="sensitive">False</property>
-                                <property name="visible">False</property>
-                              </object>
-                            </child>
-                          </object>
-                        </child>
-
-                        <child>
-                          <object class="GtkBox" id="app_chrome_group">
-                            <property name="spacing">4</property>
-                            <style>
-                              <class name="overlay-pill"/>
-                              <class name="app-chrome-group"/>
-                            </style>
-
-                            <child>
-                              <object class="GtkMenuButton" id="app_menu_button">
-                                <property name="always-show-arrow">False</property>
-                                <property name="tooltip-text">More</property>
-                                <property name="menu-model">app_menu_model</property>
-                                <property name="child">
-                                  <object class="GtkImage">
-                                    <property name="icon-name">view-more-symbolic</property>
-                                  </object>
-                                </property>
-                                <style>
-                                  <class name="flat"/>
-                                </style>
-                              </object>
-                            </child>
-
-                            <child>
-                              <object class="GtkWindowControls" id="end_window_controls">
-                                <property name="side">end</property>
-                                <style>
-                                  <class name="overlay-window-controls"/>
-                                </style>
-                              </object>
-                            </child>
-                          </object>
-                        </child>
-                      </object>
-                    </property>
-                  </object>
-                </property>
-              </object>
-            </child>
-
-            <child type="overlay">
-              <object class="GtkCenterBox">
-                <property name="halign">fill</property>
-                <property name="valign">end</property>
-                <property name="margin-start">16</property>
-                <property name="margin-end">16</property>
-                <property name="margin-bottom">16</property>
-
-                <property name="start-widget">
-                  <object class="GtkBox" id="file_group">
-                    <property name="valign">end</property>
-                    <style>
-                      <class name="overlay-pill"/>
-                      <class name="overlay-readout"/>
-                    </style>
-
-                    <child>
-                      <object class="GtkMenuButton" id="file_button">
-                        <property name="direction">up</property>
-                        <property name="menu-model">file_menu_model</property>
-                        <property name="always-show-arrow">False</property>
-                        <property name="sensitive">False</property>
-                        <property name="child">
-                          <object class="GtkLabel" id="file_label">
-                            <property name="xalign">0</property>
-                            <property name="ellipsize">end</property>
-                            <property name="max-width-chars">30</property>
-                          </object>
-                        </property>
-                      </object>
-                    </child>
-                  </object>
-                </property>
-
-                <property name="center-widget">
-                  <object class="GtkBox">
-                    <property name="spacing">10</property>
-                    <property name="valign">fill</property>
-                    <child>
-                      <object class="GtkBox" id="settings_group">
-                        <property name="orientation">vertical</property>
-                        <property name="sensitive">False</property>
-                        <property name="valign">end</property>
-                        <style>
-                          <class name="overlay-pill"/>
-                          <class name="settings-group"/>
-                        </style>
-                        <child>
-                          <object class="GtkRevealer" id="size_drawer">
-                            <property name="transition-type">slide-up</property>
-                            <property name="transition-duration">180</property>
-                            <property name="child">
-                              <object class="GtkScale" id="width_scale">
-                                <property name="orientation">horizontal</property>
-                                <property name="draw-value">False</property>
-                                <property name="round-digits">0</property>
-                                <property name="adjustment">
-                                  <object class="GtkAdjustment">
-                                    <property name="lower">1.0</property>
-                                    <property name="upper">100.0</property>
-                                    <property name="value">8.0</property>
-                                    <property name="step-increment">1.0</property>
-                                  </object>
-                                </property>
-                              </object>
-                            </property>
-                          </object>
-                        </child>
-                        <child>
-                          <object class="GtkBox">
-                            <property name="spacing">4</property>
-                            <child>
-                              <object class="GtkColorDialogButton" id="color_button">
-                                <property name="valign">center</property>
-                                <property name="tooltip-text">Stroke color</property>
-                                <property name="dialog">
-                                  <object class="GtkColorDialog"/>
-                                </property>
-                                <property name="rgba">rgba(245, 51, 71, 1.0)</property>
-                              </object>
-                            </child>
-                            <child>
-                              <object class="GtkColorDialogButton" id="fill_color_button">
-                                <property name="valign">center</property>
-                                <property name="tooltip-text">Fill color</property>
-                                <property name="dialog">
-                                  <object class="GtkColorDialog">
-                                    <property name="with-alpha">True</property>
-                                  </object>
-                                </property>
-                                <property name="rgba">rgba(245, 51, 71, 0.0)</property>
-                              </object>
-                            </child>
-                            <child>
-                              <object class="GtkDropDown" id="blur_type_dropdown">
-                                <property name="valign">center</property>
-                                <property name="model">
-                                  <object class="GtkStringList">
-                                    <items>
-                                      <item>Blur</item>
-                                      <item>Pixelate</item>
-                                    </items>
-                                  </object>
-                                </property>
-                              </object>
-                            </child>
-                            <child>
-                              <object class="GtkBox" id="size_presets">
-                                <property name="spacing">2</property>
-                                <property name="valign">center</property>
-                                <style>
-                                  <class name="size-presets"/>
-                                </style>
-                                <child>
-                                  <object class="GtkButton">
-                                    <property name="icon-name">waytator-stroke-thin-symbolic</property>
-                                    <property name="focus-on-click">False</property>
-                                    <style>
-                                      <class name="flat"/>
-                                    </style>
-                                  </object>
-                                </child>
-                                <child>
-                                  <object class="GtkButton">
-                                    <property name="icon-name">waytator-stroke-medium-symbolic</property>
-                                    <property name="focus-on-click">False</property>
-                                    <style>
-                                      <class name="flat"/>
-                                    </style>
-                                  </object>
-                                </child>
-                                <child>
-                                  <object class="GtkButton">
-                                    <property name="icon-name">waytator-stroke-thick-symbolic</property>
-                                    <property name="focus-on-click">False</property>
-                                    <style>
-                                      <class name="flat"/>
-                                    </style>
-                                  </object>
-                                </child>
-                              </object>
-                            </child>
-                            <child>
-                              <object class="GtkBox" id="size_readout">
-                                <property name="spacing">4</property>
-                                <property name="valign">center</property>
-                                <style>
-                                  <class name="size-readout"/>
-                                </style>
-                                <child>
-                                  <object class="GtkBox" id="size_value_box">
-                                    <property name="spacing">3</property>
-                                    <property name="tooltip-text">Drag to change, click to type</property>
-                                    <style>
-                                      <class name="size-value"/>
-                                    </style>
-                                    <child>
-                                      <object class="GtkStack" id="size_value_stack">
-                                        <property name="valign">center</property>
-                                        <child>
-                                          <object class="GtkLabel" id="size_value_label">
-                                            <property name="label">8</property>
-                                            <property name="width-chars">3</property>
-                                            <property name="max-width-chars">3</property>
-                                            <property name="xalign">1</property>
-                                          </object>
-                                        </child>
-                                        <child>
-                                          <object class="GtkText" id="size_value_entry">
-                                            <property name="width-chars">3</property>
-                                            <property name="max-width-chars">3</property>
-                                            <property name="max-length">3</property>
-                                            <property name="xalign">1</property>
-                                            <property name="input-purpose">digits</property>
-                                          </object>
-                                        </child>
-                                      </object>
-                                    </child>
-                                    <child>
-                                      <object class="GtkLabel">
-                                        <property name="label">px</property>
-                                        <style>
-                                          <class name="size-unit"/>
-                                        </style>
-                                      </object>
-                                    </child>
-                                  </object>
-                                </child>
-                                <child>
-                                  <object class="GtkToggleButton" id="size_drawer_button">
-                                    <property name="icon-name">waytator-chevron-up-symbolic</property>
-                                    <property name="focus-on-click">False</property>
-                                    <property name="tooltip-text">Show size slider</property>
-                                    <style>
-                                      <class name="flat"/>
-                                    </style>
-                                  </object>
-                                </child>
-                              </object>
-                            </child>
-                            <child>
-                              <object class="GtkSpinButton" id="text_size_spin">
-                                <property name="valign">center</property>
-                                <property name="adjustment">
-                                  <object class="GtkAdjustment">
-                                    <property name="lower">8.0</property>
-                                    <property name="upper">200.0</property>
-                                    <property name="value">24.0</property>
-                                    <property name="step-increment">1.0</property>
-                                  </object>
-                                </property>
-                              </object>
-                            </child>
-                          </object>
-                        </child>
-                      </object>
-                    </child>
-
-                    <child>
-                      <object class="GtkBox" id="ocr_panel_toggle_container">
-                        <property name="visible">False</property>
-                        <property name="valign">end</property>
-                        <style>
-                          <class name="overlay-pill"/>
-                          <class name="overlay-readout"/>
-                        </style>
-
-                        <child>
-                          <object class="GtkToggleButton" id="ocr_panel_toggle_button">
-                            <property name="tooltip-text">Show OCR text panel</property>
-                            <property name="label">OCR</property>
-                            <style>
-                              <class name="overlay-button"/>
-                            </style>
-                          </object>
-                        </child>
                       </object>
                     </child>
                   </object>
@@ -1027,7 +1038,7 @@
 
                     <child>
                       <object class="GtkBox" id="zoom_group">
-                        <property name="spacing">8</property>
+                        <property name="orientation">vertical</property>
                         <property name="sensitive">False</property>
                         <property name="valign">end</property>
                         <style>
@@ -1035,42 +1046,134 @@
                           <class name="zoom-group"/>
                         </style>
 
+                        <!-- the folded pill keeps the zoom buttons in here, they slide up out of it -->
                         <child>
-                          <object class="GtkButton">
-                            <property name="action-name">win.zoom-out</property>
-                            <property name="tooltip-text">Zoom out</property>
-                            <property name="icon-name">zoom-out-symbolic</property>
+                          <object class="GtkRevealer" id="zoom_drawer">
+                            <property name="transition-type">slide-up</property>
+                            <property name="transition-duration">180</property>
+                            <property name="child">
+                              <object class="GtkBox">
+                                <property name="homogeneous">True</property>
+                                <style>
+                                  <class name="zoom-drawer"/>
+                                </style>
+                                <child>
+                                  <object class="GtkButton">
+                                    <property name="action-name">win.zoom-out</property>
+                                    <property name="tooltip-text">Zoom out</property>
+                                    <property name="icon-name">zoom-out-symbolic</property>
+                                  </object>
+                                </child>
+                                <child>
+                                  <object class="GtkButton">
+                                    <property name="action-name">win.zoom-in</property>
+                                    <property name="tooltip-text">Zoom in</property>
+                                    <property name="icon-name">zoom-in-symbolic</property>
+                                  </object>
+                                </child>
+                                <child>
+                                  <object class="GtkButton" id="zoom_drawer_fit_button">
+                                    <property name="action-name">win.zoom-fit</property>
+                                    <property name="tooltip-text">Fit image to window</property>
+                                    <property name="label">Fit</property>
+                                    <style>
+                                      <class name="zoom-fit"/>
+                                    </style>
+                                  </object>
+                                </child>
+                              </object>
+                            </property>
                           </object>
                         </child>
 
                         <child>
-                          <object class="GtkLabel" id="zoom_label">
-                            <property name="label">100%</property>
-                            <style>
-                              <class name="zoom-label"/>
-                            </style>
-                          </object>
-                        </child>
+                          <object class="GtkBox">
+                            <property name="spacing">8</property>
 
-                        <child>
-                          <object class="GtkButton">
-                            <property name="action-name">win.zoom-in</property>
-                            <property name="tooltip-text">Zoom in</property>
-                            <property name="icon-name">zoom-in-symbolic</property>
-                          </object>
-                        </child>
+                            <child>
+                              <object class="GtkButton" id="zoom_out_button">
+                                <property name="action-name">win.zoom-out</property>
+                                <property name="tooltip-text">Zoom out</property>
+                                <property name="icon-name">zoom-out-symbolic</property>
+                              </object>
+                            </child>
 
-                        <child>
-                          <object class="GtkButton" id="fit_zoom_button">
-                            <property name="action-name">win.zoom-fit</property>
-                            <property name="tooltip-text">Fit image to window</property>
-                            <property name="label">Fit</property>
+                            <child>
+                              <object class="GtkButton" id="zoom_level_button">
+                                <property name="action-name">win.zoom-actual-size</property>
+                                <property name="tooltip-text">Reset zoom to 100%</property>
+                                <style>
+                                  <class name="zoom-level"/>
+                                </style>
+                                <property name="child">
+                                  <object class="GtkLabel" id="zoom_label">
+                                    <property name="width-chars">4</property>
+                                    <property name="label">100%</property>
+                                    <style>
+                                      <class name="zoom-label"/>
+                                    </style>
+                                  </object>
+                                </property>
+                              </object>
+                            </child>
+
+                            <child>
+                              <object class="GtkButton" id="zoom_in_button">
+                                <property name="action-name">win.zoom-in</property>
+                                <property name="tooltip-text">Zoom in</property>
+                                <property name="icon-name">zoom-in-symbolic</property>
+                              </object>
+                            </child>
+
+                            <child>
+                              <object class="GtkButton" id="fit_zoom_button">
+                                <property name="action-name">win.zoom-fit</property>
+                                <property name="tooltip-text">Fit image to window</property>
+                                <property name="label">Fit</property>
+                                <style>
+                                  <class name="zoom-fit"/>
+                                </style>
+                              </object>
+                            </child>
+
+                            <child>
+                              <object class="GtkToggleButton" id="zoom_drawer_button">
+                                <property name="visible">False</property>
+                                <property name="icon-name">waytator-chevron-up-symbolic</property>
+                                <property name="focus-on-click">False</property>
+                                <property name="tooltip-text">Show zoom controls</property>
+                                <style>
+                                  <class name="zoom-drawer-toggle"/>
+                                </style>
+                              </object>
+                            </child>
                           </object>
                         </child>
                       </object>
                     </child>
                   </object>
                 </property>
+              </object>
+            </child>
+
+            <child type="overlay">
+              <object class="GtkLabel" id="zoom_osd">
+                <property name="visible">False</property>
+                <property name="halign">center</property>
+                <property name="valign">center</property>
+                <property name="can-target">False</property>
+                <style>
+                  <class name="overlay-pill"/>
+                  <class name="zoom-osd"/>
+                </style>
+              </object>
+            </child>
+
+            <child type="overlay">
+              <object class="GtkDrawingArea" id="chrome_watcher">
+                <property name="can-target">False</property>
+                <property name="hexpand">True</property>
+                <property name="vexpand">True</property>
               </object>
             </child>
           </object>

@@ -2,7 +2,7 @@
 
 # waytator
 
-`waytator` is a screenshot annotator and lightweight image editor
+`waytator` is a one stop shot for screenshotting and recording on supported wlroots based compositor. It is also a lightweight image and video editor.
 
 Using niri or GNOME? See [Desktop-specific notes](#desktop-specific-notes).
 
@@ -72,7 +72,7 @@ OCR is included. For a smaller install without it, use `.default.override { with
 
 2) Required runtime dependencies:
 
-`wl-clipboard` for clipboard support - `adwaita-icon-theme` for icons (most distributions install it with `gtk4`)
+`wl-clipboard` for clipboard support
 
 3) Recommended runtime dependency:
 
@@ -144,6 +144,8 @@ waytator --screenshot --screen DP-1   # capture that screen straight away
 
 Bind these to keys in your compositor to capture and annotate in one step. On some desktops, the first screenshot asks for permission.
 
+Run `waytator --help` for every option, including overriding shortcuts for one launch.
+
 ### Running in background
 
 To keep Waytator running in the background as a GLib application service ("daemon"), run:
@@ -153,9 +155,6 @@ waytator --gapplication-service
 ```
 
 This will keep Waytator loaded in memory, allowing it to load faster in subsequent command invocations.
-
-### Writing shortcuts
-Run `waytator --help` for every option, including overriding shortcuts for one launch.
 
 ## Desktop-specific notes
 

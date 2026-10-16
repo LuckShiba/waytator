@@ -5,6 +5,36 @@
 #include "waytator-types.h"
 #include "waytator-window.h"
 
+//how far the floating controls have folded to fit the window, see waytator-chrome-layout.c
+typedef enum {
+  WAYTATOR_ZOOM_FULL,
+  WAYTATOR_ZOOM_CHIP,
+  //in the main menu, with a readout over the image while zooming
+  WAYTATOR_ZOOM_MENU,
+} WaytatorZoomFold;
+
+typedef struct {
+  //Open, capture and the delay as one menu button
+  gboolean open_menu;
+  gboolean title;
+  WaytatorZoomFold zoom;
+  gboolean save;
+  gboolean keep_open;
+  gboolean tight;
+} WaytatorChromeFolds;
+
+//natural widths of the bars for each way of folding them, -1 until measured
+typedef struct {
+  //indexed by tight, open_menu, save and keep_open as bits
+  int start[16];
+  int end[16];
+  int zoom[3];
+  //the tools and the options above them, at the normal spacing
+  int dock;
+  //the title pill without the gaps either side of it
+  int title;
+} WaytatorChromeWidths;
+
 struct _WaytatorWindow {
   AdwApplicationWindow parent_instance;
 
@@ -32,6 +62,27 @@ struct _WaytatorWindow {
   GtkTextView *ocr_selected_text_view;
   GtkTextView *ocr_all_text_view;
   GtkWidget *start_actions;
+  GtkWidget *end_actions;
+  GtkWidget *top_bar;
+  GtkWidget *bottom_bar;
+  GtkWidget *dock_box;
+  GtkWidget *options_row;
+  GtkWidget *chrome_watcher;
+  GtkWidget *open_label_button;
+  GtkMenuButton *open_menu_button;
+  GtkWidget *open_separator;
+  GtkWidget *crop_actions;
+  GtkWidget *zoom_out_button;
+  GtkWidget *zoom_in_button;
+  GtkRevealer *zoom_drawer;
+  GtkToggleButton *zoom_drawer_button;
+  GtkWidget *zoom_drawer_fit_button;
+  GtkLabel *zoom_menu_label;
+  GtkWidget *zoom_menu_fit_button;
+  GtkWidget *zoom_menu_row;
+  GtkLabel *zoom_osd;
+  GMenu *app_menu;
+  char *app_menu_key;
   GtkWidget *start_window_controls_pill;
   GtkWindowControls *start_window_controls;
   GListModel *start_window_controls_children;
@@ -119,6 +170,8 @@ struct _WaytatorWindow {
   WaytatorStroke *current_stroke;
   double zoom;
   gboolean fit_mode;
+  //a freshly opened image follows the window, no larger than its own size, until its zoom settles
+  gboolean opening_zoom;
   WaytatorTool active_tool;
   gboolean drawing;
   guint copy_feedback_timeout_id;
@@ -152,6 +205,8 @@ struct _WaytatorWindow {
   GPtrArray *capture_hidden_windows;
   char *capture_output_name;
   guint capture_delay_id;
+  //taken before this window was built, the command line starts it while the window is still being put together
+  WaytatorCaptureEarly *capture_early;
   WaytatorAfterSave after_save;
   char *saved_path;
   guint ocr_generation;
@@ -170,10 +225,18 @@ struct _WaytatorWindow {
 
   double pointer_x;
   double pointer_y;
-  double pointer_widget_x;
-  double pointer_widget_y;
+  //where the pointer is over the viewport. not over the image, which moves under it as it zooms and scrolls
+  double pointer_viewport_x;
+  double pointer_viewport_y;
   gboolean pointer_in;
   WaytatorWindowBackgroundMode window_background_mode;
+  WaytatorChromeFolds folds;
+  int chrome_width;
+  WaytatorChromeWidths chrome_widths;
+  gboolean chrome_widths_stale;
+  guint chrome_layout_id;
+  guint zoom_osd_timeout_id;
+
   gboolean updating_ui;
   gboolean size_drawer_open;
   gboolean size_editing;
@@ -216,6 +279,13 @@ void waytator_window_update_ocr_overlay(WaytatorWindow *self);
 void waytator_window_maybe_start_ocr(WaytatorWindow *self);
 void waytator_window_update_ocr_panel(WaytatorWindow *self);
 void waytator_window_reset_save_button(WaytatorWindow *self);
+void waytator_window_update_save_menu(WaytatorWindow *self);
+void waytator_window_update_copy_controls(WaytatorWindow *self);
+gboolean waytator_window_closes_on_copy(WaytatorWindow *self);
+void waytator_window_setup_chrome_layout(WaytatorWindow *self);
+void waytator_window_queue_chrome_layout(WaytatorWindow *self);
+void waytator_window_update_chrome_layout(WaytatorWindow *self);
+void waytator_window_flash_zoom_readout(WaytatorWindow *self);
 void waytator_window_update_history_buttons(WaytatorWindow *self);
 void waytator_window_clear_history(WaytatorWindow *self);
 void waytator_window_record_undo_step(WaytatorWindow *self);
@@ -274,6 +344,14 @@ void waytator_window_apply_crop(WaytatorWindow *self,
                                 int             top,
                                 int             width,
                                 int             height);
+void waytator_window_scroll_image_point_to(WaytatorWindow *self,
+                                          double          rel_x,
+                                          double          rel_y,
+                                          double          viewport_x,
+                                          double          viewport_y);
+void waytator_window_queue_opening_zoom(WaytatorWindow *self);
+void waytator_window_toggle_fit(WaytatorWindow *self);
+void waytator_window_settle_opening_zoom(WaytatorWindow *self);
 void waytator_window_set_zoom_at(WaytatorWindow *self,
                                  double          zoom,
                                  double          viewport_x,
@@ -281,7 +359,6 @@ void waytator_window_set_zoom_at(WaytatorWindow *self,
 void waytator_window_update_size_controls(WaytatorWindow *self);
 void waytator_window_save_preferences(WaytatorWindow *self);
 void waytator_window_update_tool_ui(WaytatorWindow *self);
-void waytator_window_queue_fit_zoom(WaytatorWindow *self);
 void waytator_window_sync_state(WaytatorWindow *self);
 void waytator_window_install_history_actions(GtkWidgetClass *widget_class);
 void waytator_window_setup_tool_signals(WaytatorWindow *self);

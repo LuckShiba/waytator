@@ -644,7 +644,8 @@ waytator_window_update_tool_ui(WaytatorWindow *self)
   }
 
   gtk_widget_set_visible(self->settings_group,
-                         self->texture != NULL && !is_pan_tool && !is_crop_tool && !is_ocr_tool);
+                         self->texture != NULL && !is_pan_tool && !is_ocr_tool);
+  gtk_widget_set_visible(self->crop_actions, is_crop_tool);
   gtk_widget_set_visible(GTK_WIDGET(self->color_button),
                           !is_pan_tool &&
                           !is_crop_tool &&
@@ -671,6 +672,8 @@ waytator_window_update_tool_ui(WaytatorWindow *self)
     waytator_window_maybe_start_ocr(self);
   waytator_window_update_ocr_overlay(self);
   waytator_window_update_ocr_panel(self);
+  //the options above the tools change with the tool, and the dock with them
+  waytator_window_queue_chrome_layout(self);
 }
 
 void

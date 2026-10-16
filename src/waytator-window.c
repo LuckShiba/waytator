@@ -35,8 +35,6 @@ static gboolean waytator_window_parse_accelerator(const char       *accelerator,
 static void waytator_window_apply_shortcut(WaytatorWindow  *self,
                                            WaytatorShortcut shortcut,
                                            const char      *accelerator);
-static gboolean waytator_window_closes_on_copy(WaytatorWindow *self);
-static void waytator_window_update_copy_controls(WaytatorWindow *self);
 static void waytator_window_update_capture_controls(WaytatorWindow *self);
 static void waytator_window_update_shortcut_label(GtkShortcutLabel *label,
                                                   const char       *accelerator);
@@ -131,7 +129,7 @@ static const struct {
   [WAYTATOR_SHORTCUT_CAPTURE_AREA] = { "capture_area_shortcut", "capture-area", "Capture area", "win.capture-area", "<Primary><Shift>a" },
   [WAYTATOR_SHORTCUT_CAPTURE_SCREEN] = { "capture_screen_shortcut", "capture-screen", "Capture screen", "win.capture-screen", "<Primary><Shift>s" },
   [WAYTATOR_TOOL_SHORTCUT(WAYTATOR_TOOL_PAN)] = { "pan_tool_shortcut", NULL, "Pan", NULL, "p" },
-  [WAYTATOR_TOOL_SHORTCUT(WAYTATOR_TOOL_CROP)] = { "crop_tool_shortcut", NULL, "Crop", NULL, "c" },
+  [WAYTATOR_TOOL_SHORTCUT(WAYTATOR_TOOL_CROP)] = { "crop_tool_shortcut", NULL, "Transform", NULL, "c" },
   [WAYTATOR_TOOL_SHORTCUT(WAYTATOR_TOOL_BRUSH)] = { "brush_tool_shortcut", NULL, "Brush", NULL, "b" },
   [WAYTATOR_TOOL_SHORTCUT(WAYTATOR_TOOL_MARKER)] = { "highlighter_tool_shortcut", NULL, "Highlighter", NULL, "h" },
   [WAYTATOR_TOOL_SHORTCUT(WAYTATOR_TOOL_ERASER)] = { "eraser_tool_shortcut", NULL, "Eraser", NULL, "e" },
@@ -399,6 +397,51 @@ waytator_window_accelerators_equal(const char *first,
       && first_modifiers == second_modifiers;
 }
 
+//the keys bound in main.c, which nothing in the preferences can take over
+static const struct {
+  const char *action;
+  const char *title;
+} waytator_fixed_shortcuts[] = {
+  { "win.open", "Open image" },
+  { "win.preferences", "Preferences" },
+  { "win.undo", "Undo" },
+  { "win.redo", "Redo" },
+  { "win.zoom-in", "Zoom in" },
+  { "win.zoom-out", "Zoom out" },
+  { "win.zoom-fit", "Fit" },
+  { "win.zoom-actual-size", "Reset zoom to 100%" },
+  { "win.rotate-counter-clockwise", "Rotate counter clockwise" },
+  { "win.flip-horizontal", "Flip horizontal" },
+  { "win.flip-vertical", "Flip vertical" },
+  { "app.quit", "Quit" },
+};
+
+//what a key bound in main.c does, or NULL. those come first, a shortcut on the same key never fires
+static const char *
+waytator_window_fixed_shortcut_title(WaytatorWindow *self,
+                                     const char     *accelerator)
+{
+  GtkApplication *app = gtk_window_get_application(GTK_WINDOW(self));
+  g_autofree char *name = NULL;
+  g_auto(GStrv) actions = NULL;
+  guint keyval;
+  GdkModifierType modifiers;
+
+  if (app == NULL || !waytator_window_parse_accelerator(accelerator, &keyval, &modifiers))
+    return NULL;
+
+  name = gtk_accelerator_name(keyval, modifiers);
+  actions = gtk_application_get_actions_for_accel(app, name);
+  for (guint i = 0; actions != NULL && actions[i] != NULL; i++) {
+    for (guint j = 0; j < G_N_ELEMENTS(waytator_fixed_shortcuts); j++) {
+      if (g_strcmp0(actions[i], waytator_fixed_shortcuts[j].action) == 0)
+        return waytator_fixed_shortcuts[j].title;
+    }
+  }
+
+  return NULL;
+}
+
 //the earlier shortcut holding the same key, or -1
 int
 waytator_window_shortcut_conflict(WaytatorWindow  *self,
@@ -438,7 +481,7 @@ waytator_window_activate_shortcut(WaytatorWindow  *self,
     gtk_widget_activate_action(GTK_WIDGET(self), waytator_shortcuts[shortcut].action, NULL);
 }
 
-static gboolean
+gboolean
 waytator_window_closes_on_copy(WaytatorWindow *self)
 {
   return self->close_on_copy_override >= 0
@@ -859,6 +902,7 @@ waytator_window_update_window_controls(WaytatorWindow *self)
   gtk_widget_set_visible(GTK_WIDGET(self->start_window_controls), has_start_controls);
   gtk_widget_set_visible(self->start_window_controls_pill, has_start_controls);
   gtk_widget_set_visible(GTK_WIDGET(self->end_window_controls), has_end_controls);
+  waytator_window_queue_chrome_layout(self);
 }
 
 static void
@@ -1040,14 +1084,15 @@ waytator_window_update_shortcut_conflicts(WaytatorWindow *self)
 {
   for (int i = 0; i < WAYTATOR_N_SHORTCUTS; i++) {
     const int conflict = waytator_window_shortcut_conflict(self, i, FALSE);
+    const char *fixed = waytator_window_fixed_shortcut_title(self, self->shortcut_accels[i]);
     g_autofree char *subtitle = NULL;
 
     if (self->shortcut_rows[i] == NULL)
       continue;
 
-    if (conflict >= 0) {
+    if (fixed != NULL || conflict >= 0) {
       subtitle = g_strdup_printf("Already used by %s, which takes priority",
-                                 waytator_shortcuts[conflict].title);
+                                 fixed != NULL ? fixed : waytator_shortcuts[conflict].title);
       gtk_widget_add_css_class(GTK_WIDGET(self->shortcut_rows[i]), "warning");
     } else {
       gtk_widget_remove_css_class(GTK_WIDGET(self->shortcut_rows[i]), "warning");
@@ -2030,7 +2075,6 @@ waytator_window_clear_ocr_results(WaytatorWindow *self)
   g_clear_pointer(&self->ocr_lines, g_ptr_array_unref);
   g_clear_pointer(&self->ocr_all_text, g_free);
   gtk_widget_set_visible(GTK_WIDGET(self->ocr_overlay), FALSE);
-  gtk_widget_set_visible(self->ocr_panel_toggle_container, FALSE);
   gtk_toggle_button_set_active(self->ocr_panel_toggle_button, FALSE);
   waytator_window_update_ocr_panel(self);
 }
@@ -2148,7 +2192,11 @@ waytator_window_update_ocr_panel(WaytatorWindow *self)
   const char *selected_text = NULL;
   const char *all_text = NULL;
 
-  gtk_widget_set_visible(self->ocr_panel_toggle_container, can_show_toggle);
+  if (gtk_widget_get_visible(self->ocr_panel_toggle_container) != can_show_toggle) {
+    gtk_widget_set_visible(self->ocr_panel_toggle_container, can_show_toggle);
+    //the options above the tools get wider with it
+    waytator_window_queue_chrome_layout(self);
+  }
 
   if (self->ocr_running && gtk_toggle_button_get_active(self->ocr_panel_toggle_button)) {
     selected_text = "Recognizing text...";
@@ -2339,7 +2387,7 @@ waytator_window_trigger_copy(WaytatorWindow *self)
   waytator_window_start_copy(self, FALSE);
 }
 
-static void
+void
 waytator_window_update_copy_controls(WaytatorWindow *self)
 {
   const gboolean closes_on_copy = waytator_window_closes_on_copy(self);
@@ -2347,10 +2395,12 @@ waytator_window_update_copy_controls(WaytatorWindow *self)
   if (self->copy_button == NULL)
     return;
 
-  gtk_widget_set_visible(GTK_WIDGET(self->copy_keep_open_button), closes_on_copy);
+  gtk_widget_set_visible(GTK_WIDGET(self->copy_keep_open_button), closes_on_copy && self->folds.keep_open);
   gtk_widget_set_tooltip_text(GTK_WIDGET(self->copy_button), closes_on_copy ? "Copy and close" : "Copy");
   gtk_image_set_from_icon_name(self->copy_default_icon,
                                closes_on_copy ? "waytator-copy-close-symbolic" : "waytator-copy-symbolic");
+  //a second copy button makes the top bar wider
+  waytator_window_queue_chrome_layout(self);
 }
 
 void
@@ -2387,7 +2437,7 @@ waytator_window_saves_to_folder(WaytatorWindow *self)
 }
 
 //the menu only exists where there is a choice, an image with nowhere obvious to go gets the plain button and a dialog
-static void
+void
 waytator_window_update_save_menu(WaytatorWindow *self)
 {
   const gboolean to_folder = waytator_window_saves_to_folder(self);
@@ -2398,8 +2448,8 @@ waytator_window_update_save_menu(WaytatorWindow *self)
   if (self->save_menu == NULL)
     return;
 
-  gtk_widget_set_visible(GTK_WIDGET(self->save_button), has_menu);
-  gtk_widget_set_visible(GTK_WIDGET(self->save_as_button), !has_menu);
+  gtk_widget_set_visible(GTK_WIDGET(self->save_button), has_menu && self->folds.save);
+  gtk_widget_set_visible(GTK_WIDGET(self->save_as_button), !has_menu && self->folds.save);
 
   //rebuilding it while nothing changed would close a menu that is open
   if (g_strcmp0(key, self->save_menu_key) == 0)
@@ -2407,6 +2457,8 @@ waytator_window_update_save_menu(WaytatorWindow *self)
 
   g_free(self->save_menu_key);
   self->save_menu_key = g_steal_pointer(&key);
+  //the menu button and the plain one need not be the same width
+  waytator_window_queue_chrome_layout(self);
   g_menu_remove_all(self->save_menu);
   if (to_folder) {
     g_autofree char *label = g_strdup_printf("Save to %s", folder);
@@ -3562,6 +3614,7 @@ waytator_window_clear_image(WaytatorWindow *self)
   waytator_window_mark_saved(self);
   gtk_picture_set_paintable(self->picture, NULL);
   self->fit_mode = TRUE;
+  self->opening_zoom = FALSE;
   waytator_window_update_picture_size(self);
   waytator_window_sync_state(self);
 }
@@ -3591,7 +3644,8 @@ waytator_window_set_image(WaytatorWindow *self,
 
   gtk_label_set_text(self->file_label, self->source_name);
   self->zoom = 1.0;
-  self->fit_mode = TRUE;
+  self->fit_mode = FALSE;
+  self->opening_zoom = TRUE;
   self->drawing = FALSE;
   self->current_stroke = NULL;
   self->ocr_running = FALSE;
@@ -3599,7 +3653,7 @@ waytator_window_set_image(WaytatorWindow *self,
   waytator_window_mark_saved(self);
 
   waytator_window_sync_state(self);
-  waytator_window_queue_fit_zoom(self);
+  waytator_window_queue_opening_zoom(self);
   gtk_widget_queue_draw(GTK_WIDGET(self->drawing_area));
 }
 
@@ -3778,7 +3832,8 @@ waytator_window_update_capture_controls(WaytatorWindow *self)
   //a key that an earlier shortcut already took would be a lie
   accelerator = waytator_window_shortcut_accel(self, shortcut);
   if (waytator_window_parse_accelerator(accelerator, &keyval, &modifiers)
-      && waytator_window_shortcut_conflict(self, shortcut, TRUE) < 0)
+      && waytator_window_shortcut_conflict(self, shortcut, TRUE) < 0
+      && waytator_window_fixed_shortcut_title(self, accelerator) == NULL)
     label = gtk_accelerator_get_label(gdk_keyval_to_upper(keyval), modifiers);
 
   //capturing always starts with an area, the overlay is where a screen can be picked instead
@@ -3915,10 +3970,11 @@ waytator_window_store_capture(WaytatorWindow *self,
   waytator_screenshot_store(texture, name, &self->settings, waytator_window_capture_stored, store);
 }
 
-static void waytator_window_begin_capture(WaytatorWindow     *self,
-                                          WaytatorCaptureMode mode,
-                                          const char         *output_name,
-                                          guint               delay_seconds);
+static void waytator_window_begin_capture(WaytatorWindow       *self,
+                                          WaytatorCaptureMode   mode,
+                                          const char           *output_name,
+                                          guint                 delay_seconds,
+                                          WaytatorCaptureEarly *early);
 
 //a capture the portal turned down for want of a permission, kept to be taken again once it is given
 typedef struct {
@@ -3964,7 +4020,7 @@ waytator_window_capture_allowed(GObject      *source_object,
   //back out of sight, so the capture goes the way it would have the first time
   if (permission->temporary)
     gtk_widget_set_visible(GTK_WIDGET(self), FALSE);
-  waytator_window_begin_capture(self, permission->mode, permission->output_name, 0);
+  waytator_window_begin_capture(self, permission->mode, permission->output_name, 0, NULL);
   waytator_capture_permission_free(permission);
 }
 
@@ -4174,10 +4230,14 @@ waytator_window_capture_after_wait(gpointer user_data)
   WaytatorWindow *self = WAYTATOR_WINDOW(user_data);
 
   self->capture_delay_id = 0;
-  if (waytator_capture_uses_gnome_ui())
+  if (waytator_capture_uses_gnome_ui()) {
     waytator_capture_gnome_ui_async(waytator_window_gnome_capture_ready, g_object_ref(self));
-  else
+  } else if (self->capture_early != NULL) {
+    waytator_capture_early_take_async(self->capture_early, waytator_window_capture_ready, g_object_ref(self));
+    g_clear_pointer(&self->capture_early, waytator_capture_early_unref);
+  } else {
     waytator_capture_outputs_async(NULL, waytator_window_capture_ready, g_object_ref(self));
+  }
   return G_SOURCE_REMOVE;
 }
 
@@ -4197,6 +4257,10 @@ waytator_window_take_capture(WaytatorWindow *self,
 
   if (wait)
     delay_ms = MAX(delay_ms, WAYTATOR_CAPTURE_SETTLE_MS);
+
+  //taken before anything left the screen, so it would show what the wait is for
+  if (delay_ms != 0)
+    g_clear_pointer(&self->capture_early, waytator_capture_early_unref);
 
   if (delay_ms == 0) {
     waytator_window_capture_after_wait(self);
@@ -4225,13 +4289,17 @@ waytator_window_capture_retake(gboolean            hide_waytator,
 }
 
 static void
-waytator_window_begin_capture(WaytatorWindow     *self,
-                              WaytatorCaptureMode mode,
-                              const char         *output_name,
-                              guint               delay_seconds)
+waytator_window_begin_capture(WaytatorWindow       *self,
+                              WaytatorCaptureMode   mode,
+                              const char           *output_name,
+                              guint                 delay_seconds,
+                              WaytatorCaptureEarly *early)
 {
-  if (self->capture_in_progress)
+  if (self->capture_in_progress) {
+    if (early != NULL)
+      waytator_capture_early_unref(early);
     return;
+  }
 
   self->capture_in_progress = TRUE;
   self->capture_window_was_visible = gtk_widget_get_visible(GTK_WIDGET(self));
@@ -4239,19 +4307,21 @@ waytator_window_begin_capture(WaytatorWindow     *self,
   self->capture_retake = FALSE;
   self->capture_output_name = g_strdup(output_name);
   self->capture_mode = mode;
+  self->capture_early = early;
   waytator_window_take_capture(self, FALSE, delay_seconds);
 }
 
 //for the command line
 void
-waytator_window_start_capture(WaytatorWindow     *self,
-                              WaytatorCaptureMode mode,
-                              const char         *output_name,
-                              guint               delay_seconds)
+waytator_window_start_capture(WaytatorWindow       *self,
+                              WaytatorCaptureMode   mode,
+                              const char           *output_name,
+                              guint                 delay_seconds,
+                              WaytatorCaptureEarly *early)
 {
   g_return_if_fail(WAYTATOR_IS_WINDOW(self));
 
-  waytator_window_begin_capture(self, mode, output_name, delay_seconds);
+  waytator_window_begin_capture(self, mode, output_name, delay_seconds, early);
 }
 
 static void
@@ -4268,7 +4338,8 @@ waytator_window_capture_action(GtkWidget  *widget,
                                   ? WAYTATOR_CAPTURE_SCREEN
                                   : WAYTATOR_CAPTURE_AREA,
                                 NULL,
-                                delay != NULL ? g_variant_get_uint32(delay) : 0);
+                                delay != NULL ? g_variant_get_uint32(delay) : 0,
+                                NULL);
 }
 
 static void
@@ -4410,11 +4481,17 @@ waytator_window_dispose(GObject *object)
   if (self->capture_delay_id != 0)
     g_source_remove(self->capture_delay_id);
   self->capture_delay_id = 0;
+  g_clear_pointer(&self->capture_early, waytator_capture_early_unref);
   g_clear_pointer(&self->capture_output_name, g_free);
   g_clear_pointer(&self->capture_hidden_windows, g_ptr_array_unref);
   g_clear_object(&self->adopt_file);
   g_clear_object(&self->save_menu);
   g_clear_pointer(&self->save_menu_key, g_free);
+  g_clear_handle_id(&self->chrome_layout_id, g_source_remove);
+  g_clear_handle_id(&self->zoom_osd_timeout_id, g_source_remove);
+  g_clear_object(&self->app_menu);
+  g_clear_object(&self->zoom_menu_row);
+  g_clear_pointer(&self->app_menu_key, g_free);
   waytator_settings_clear(&self->settings);
   waytator_window_clear_history(self);
   g_clear_pointer(&self->document, waytator_document_free);
@@ -4478,6 +4555,22 @@ waytator_window_bind_template_children(GtkWidgetClass *widget_class)
   gtk_widget_class_bind_template_child(widget_class, WaytatorWindow, file_button);
   gtk_widget_class_bind_template_child(widget_class, WaytatorWindow, file_label);
   gtk_widget_class_bind_template_child(widget_class, WaytatorWindow, zoom_label);
+  gtk_widget_class_bind_template_child(widget_class, WaytatorWindow, end_actions);
+  gtk_widget_class_bind_template_child(widget_class, WaytatorWindow, top_bar);
+  gtk_widget_class_bind_template_child(widget_class, WaytatorWindow, bottom_bar);
+  gtk_widget_class_bind_template_child(widget_class, WaytatorWindow, dock_box);
+  gtk_widget_class_bind_template_child(widget_class, WaytatorWindow, options_row);
+  gtk_widget_class_bind_template_child(widget_class, WaytatorWindow, chrome_watcher);
+  gtk_widget_class_bind_template_child(widget_class, WaytatorWindow, open_label_button);
+  gtk_widget_class_bind_template_child(widget_class, WaytatorWindow, open_menu_button);
+  gtk_widget_class_bind_template_child(widget_class, WaytatorWindow, open_separator);
+  gtk_widget_class_bind_template_child(widget_class, WaytatorWindow, crop_actions);
+  gtk_widget_class_bind_template_child(widget_class, WaytatorWindow, zoom_out_button);
+  gtk_widget_class_bind_template_child(widget_class, WaytatorWindow, zoom_in_button);
+  gtk_widget_class_bind_template_child(widget_class, WaytatorWindow, zoom_drawer);
+  gtk_widget_class_bind_template_child(widget_class, WaytatorWindow, zoom_drawer_button);
+  gtk_widget_class_bind_template_child(widget_class, WaytatorWindow, zoom_drawer_fit_button);
+  gtk_widget_class_bind_template_child(widget_class, WaytatorWindow, zoom_osd);
   gtk_widget_class_bind_template_child(widget_class, WaytatorWindow, tool_group);
   gtk_widget_class_bind_template_child(widget_class, WaytatorWindow, pan_tool_button);
   gtk_widget_class_bind_template_child(widget_class, WaytatorWindow, crop_tool_button);
@@ -4562,6 +4655,14 @@ waytator_window_init_state(WaytatorWindow *self)
 {
   self->zoom = 1.0;
   self->fit_mode = TRUE;
+  //nothing folded until the window has a size to fold for
+  self->folds = (WaytatorChromeFolds) {
+    .title = TRUE,
+    .zoom = WAYTATOR_ZOOM_FULL,
+    .save = TRUE,
+    .keep_open = TRUE,
+  };
+  self->chrome_widths_stale = TRUE;
   self->active_tool = WAYTATOR_TOOL_BRUSH;
   self->drawing = FALSE;
   self->document = waytator_document_new();
@@ -4741,6 +4842,8 @@ waytator_window_setup_capture_delay(WaytatorWindow *self)
                                                                  g_variant_new_uint32(0));
   g_autoptr(GMenu) menu = g_menu_new();
   g_autoptr(GMenu) section = g_menu_new();
+  g_autoptr(GMenu) open_menu = g_menu_new();
+  g_autoptr(GMenu) open_section = g_menu_new();
 
   for (guint i = 0; i < G_N_ELEMENTS(delays); i++) {
     g_autofree char *label = delays[i] == 0
@@ -4757,6 +4860,13 @@ waytator_window_setup_capture_delay(WaytatorWindow *self)
   g_action_map_add_action(G_ACTION_MAP(self), G_ACTION(action));
   gtk_menu_button_set_menu_model(self->capture_delay_button, G_MENU_MODEL(menu));
   gtk_menu_button_set_menu_model(self->home_delay_button, G_MENU_MODEL(menu));
+  //what the Open and capture buttons do, for when the bar is too short for them
+  g_menu_append(open_section, "Open image…", "win.open");
+  g_menu_append(open_section, "Capture area", "win.capture-area");
+  g_menu_append_section(open_menu, NULL, G_MENU_MODEL(open_section));
+  g_menu_append_section(open_menu, "Delay", G_MENU_MODEL(section));
+  gtk_menu_button_set_menu_model(self->open_menu_button, G_MENU_MODEL(open_menu));
+  waytator_window_setup_menu_button_popover(self->open_menu_button, GTK_ARROW_DOWN, GTK_POS_BOTTOM);
   waytator_window_capture_delay_changed(action, NULL, self);
 }
 
@@ -4774,18 +4884,16 @@ waytator_window_setup_capture_button(WaytatorWindow *self)
 static void
 waytator_window_setup_popovers(WaytatorWindow *self)
 {
+  //the tools sit in the dock at the bottom
   waytator_window_setup_menu_button_popover(self->shapes_tool_button,
-                                            GTK_ARROW_DOWN,
-                                            GTK_POS_BOTTOM);
+                                            GTK_ARROW_UP,
+                                            GTK_POS_TOP);
   waytator_window_setup_menu_button_popover(self->save_button,
                                             GTK_ARROW_DOWN,
                                             GTK_POS_BOTTOM);
-  waytator_window_setup_menu_button_popover(self->app_menu_button,
+  waytator_window_setup_menu_button_popover(self->file_button,
                                             GTK_ARROW_DOWN,
                                             GTK_POS_BOTTOM);
-  waytator_window_setup_menu_button_popover(self->file_button,
-                                            GTK_ARROW_UP,
-                                            GTK_POS_TOP);
 }
 
 static void
@@ -4826,6 +4934,7 @@ waytator_window_init(WaytatorWindow *self)
   waytator_window_setup_tool_shortcut_hints(self);
   waytator_window_setup_controllers(self);
   waytator_window_setup_signals(self);
+  waytator_window_setup_chrome_layout(self);
   g_signal_connect(self->copy_button, "clicked", G_CALLBACK(waytator_window_copy_clicked), self);
   g_signal_connect(self->save_as_button, "clicked", G_CALLBACK(waytator_window_save_as_clicked), self);
   g_signal_connect(self->copy_keep_open_button, "clicked", G_CALLBACK(waytator_window_copy_keep_open_clicked), self);

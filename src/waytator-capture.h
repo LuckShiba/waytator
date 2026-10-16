@@ -22,6 +22,17 @@ void waytator_capture_outputs_async(GCancellable       *cancellable,
 //fails with G_IO_ERROR_PERMISSION_DENIED when the portal needs a permission waytator_capture_allow_async gives
 GPtrArray *waytator_capture_outputs_finish(GAsyncResult *result,
                                            GError      **error);
+//a capture started ahead of time, so it can run while whatever wants it is still being built
+typedef struct _WaytatorCaptureEarly WaytatorCaptureEarly;
+
+WaytatorCaptureEarly *waytator_capture_early_start(void);
+//hands over what the early capture got, or will get, the result is read with waytator_capture_outputs_finish
+void waytator_capture_early_take_async(WaytatorCaptureEarly *early,
+                                       GAsyncReadyCallback   callback,
+                                       gpointer              user_data);
+//one nobody takes is let go, whatever it captures is thrown away
+void waytator_capture_early_unref(WaytatorCaptureEarly *early);
+
 //true on GNOME, where a capture is taken in GNOME's own screenshot UI rather than waytator's overlay
 gboolean waytator_capture_uses_gnome_ui(void);
 //opens GNOME's screenshot UI, the result is what was taken there and the file GNOME saved it to.
